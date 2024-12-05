@@ -30,6 +30,8 @@ module CanopyHydrologyMod
   use pftvarcon         , only : irrigated
   use GridcellType      , only : grc_pp
   use timeinfoMod, only : dtime_mod
+  use elm_varctl        , only : use_wtr, nlevwtr    !Huancui
+  use elm_varctl        , only : update_wtr_flx,  update_wtr_ws, cal_wtr_ratio    !Huancui
   !
   ! !PUBLIC TYPES:
   implicit none
@@ -100,7 +102,7 @@ contains
    subroutine CanopyHydrology(bounds, &
         num_nolakec, filter_nolakec, num_nolakep, filter_nolakep, &
         atm2lnd_vars, canopystate_vars, &
-        aerosol_vars )
+        aerosol_vars, wtr_ratio )    !last is tracer input
      !
      ! !DESCRIPTION:
      ! Calculation of
@@ -136,6 +138,7 @@ contains
      type(atm2lnd_type)     , intent(in)    :: atm2lnd_vars
      type(canopystate_type) , intent(in)    :: canopystate_vars
      type(aerosol_type)     , intent(inout) :: aerosol_vars
+     real(r8)               , intent(in)    :: wtr_ratio(1:nlevwtr) !Huancui
      !
      ! !LOCAL VARIABLES:
      integer  :: f                                            ! filter index
@@ -177,6 +180,21 @@ contains
      integer :: irrigated_ppg(bounds%begg:bounds%endg)        ! irrigated pft per grid
      integer :: gg
      !-----------------------------------------------------------------------
+     !------Huancui: water tracer local variables------
+     integer  :: ntr    !Huancui
+     real(r8) :: wtr_dz_snowf(1:nlevwtr)                                    ! tracer layer thickness rate change due to precipitation [mm/s]
+     real(r8) :: wtr_temp_snow_depth(1:nlevwtr)
+     real(r8) :: wtr_temp_intsnow
+     real(r8) :: wtr_qflx_candrip(bounds%begp:bounds%endp,1:nlevwtr)        ! tracer rate of canopy runoff and snow falling off canopy [mm/s]
+     real(r8) :: wtr_qflx_through_rain(bounds%begp:bounds%endp,1:nlevwtr)   ! tracer direct rain throughfall [mm/s]
+     real(r8) :: wtr_qflx_through_snow(bounds%begp:bounds%endp,1:nlevwtr)   ! tracer direct snow throughfall [mm/s]
+     real(r8) :: wtr_qflx_prec_grnd_snow(bounds%begp:bounds%endp,1:nlevwtr) ! tracer snow precipitation incident on ground [mm/s]
+     real(r8) :: wtr_qflx_prec_grnd_rain(bounds%begp:bounds%endp,1:nlevwtr) ! tracer rain precipitation incident on ground [mm/s]
+     real(r8) :: wtr_newsnow(bounds%begc:bounds%endc,1:nlevwtr)
+     real(r8) :: wtr_snowmelt(bounds%begc:bounds%endc,1:nlevwtr)
+     real(r8) :: wtr_qflx_irrig_grid(bounds%begg:bounds%endg,1:nlevwtr)      ! irrigation at grid level [mm/s] 
+     real(r8) :: wtr_ws_ratio_temp(1:nlevwtr)
+     !------end water tracer vars----------------------
 
      associate(                                                     & 
           pgridcell            => veg_pp%gridcell                             , & ! Input:  [integer  (:)   ]  pft's gridcell
@@ -248,6 +266,38 @@ contains
           qflx_surf_irrig      => veg_wf%qflx_surf_irrig_patch     , & ! Output: [real(r8) (:)   ]  actual surface water irrigation (mm/s)      
           qflx_grnd_irrig      => veg_wf%qflx_grnd_irrig_patch     , & ! Output: [real(r8) (:)   ]  actual groundwater irrigation (mm/s)     
           qflx_over_supply     => veg_wf%qflx_over_supply_patch      & ! Output: [real(r8) (:)   ]  the portion of supply that exceed total demand (mm/s)                 
+         !-----Huancui: water tracer variables-------
+        , wtr_h2ocan               => veg_ws%wtr_h2ocan               , & ! Output: [real(r8) (:,:)   ]  tracer total canopy water (mm H2O)    
+          wtr_h2osfc               => col_ws%wtr_h2osfc               , & ! Output: [real(r8) (:,:)   ]  tracer surface water (mm)        
+          wtr_h2osno               => col_ws%wtr_h2osno               , & ! Output: [real(r8) (:,:)   ]  tracer snow water (mm H2O) 
+          wtr_snow_depth           => col_ws%wtr_snow_depth           , & ! Output: [real(r8) (:,:)   ]  tracer snow height (m)      
+          wtr_int_snow             => col_ws%wtr_int_snow             , & ! Output: [real(r8) (:,:)   ]  tracer integrated snowfall [mm] 
+          wtr_h2osoi_ice           => col_ws%wtr_h2osoi_ice           , & ! Output: [real(r8) (:,:,:) ]  tracer ice lens (kg/m2)   
+          wtr_h2osoi_liq           => col_ws%wtr_h2osoi_liq           , & ! Output: [real(r8) (:,:,:) ]  tracer liquid water (kg/m2)        
+          wtr_swe_old              => col_ws%wtr_swe_old              , & ! Output: [real(r8) (:,:,:) ]  tracer snow water before update
+          wtr_irrig_rate           => veg_wf%wtr_irrig_rate           , & ! Input:  [real(r8) (:,:)   ]  tracer current irrigation rate (applied if n_irrig_steps_left > 0) [mm/s]
+          wtr_qflx_floodc          => col_wf%wtr_qflx_floodc           , & ! Output: [real(r8) (:,:)   ]  tracer column flux of flood water from RTM     
+          wtr_qflx_snow_melt       => col_wf%wtr_qflx_snow_melt        , & ! Output: [real(r8) (:,:)   ]  tracer snow melt from previous time step       
+          wtr_qflx_snow_h2osfc     => col_wf%wtr_qflx_snow_h2osfc      , & ! Output: [real(r8) (:,:)   ]  tracer snow falling on surface water (mm/s)     
+          wtr_qflx_snwcp_liq       => veg_wf%wtr_qflx_snwcp_liq      , & ! Output: [real(r8) (:,:)   ]  tracer excess rainfall due to snow capping (mm H2O /s) [+]
+          wtr_qflx_snwcp_ice       => veg_wf%wtr_qflx_snwcp_ice      , & ! Output: [real(r8) (:,:)   ]  tracer excess snowfall due to snow capping (mm H2O /s) [+]
+          wtr_qflx_snow_grnd_col   => col_wf%wtr_qflx_snow_grnd        , & ! Output: [real(r8) (:,:)   ]  tracer snow on ground after interception (mm H2O/s) [+]
+          wtr_qflx_snow_grnd_patch => veg_wf%wtr_qflx_snow_grnd      , & ! Output: [real(r8) (:,:)   ]  tracer snow on ground after interception (mm H2O/s) [+]
+          wtr_qflx_prec_intr       => veg_wf%wtr_qflx_prec_intr      , & ! Output: [real(r8) (:,:)   ]  tracer interception of precipitation [mm/s]  tracer   
+          wtr_qflx_prec_grnd       => veg_wf%wtr_qflx_prec_grnd      , & ! Output: [real(r8) (:,:)   ]  tracer water onto ground including canopy runoff [kg/(m2 s)]
+          wtr_qflx_rain_grnd       => veg_wf%wtr_qflx_rain_grnd      , & ! Output: [real(r8) (:,:)   ]  tracer rain on ground after interception (mm H2O/s) [+]
+          wtr_qflx_dirct_rain      => veg_wf%wtr_qflx_dirct_rain     , & ! Output: [real(r8) (:,:)   ]  tracer direct rain throughfall on ground (mm H2O/s) 
+          wtr_qflx_leafdrip        => veg_wf%wtr_qflx_leafdrip       , & ! Output: [real(r8) (:,:)   ]  tracer leap rain drip on ground (mm H2O/s)
+          wtr_qflx_irrig           => veg_wf%wtr_qflx_irrig_patch          , & ! Output: [real(r8) (:,:)   ]  tracer total water demand or irrigation amount if one-way (mm/s)      
+          wtr_qflx_real_irrig      => veg_wf%wtr_qflx_real_irrig_patch     , & ! Output: [real(r8) (:,:)   ]  tracer actual irrigation amount (mm/s)      
+          wtr_qflx_surf_irrig_col  => col_wf%wtr_qflx_surf_irrig       , & ! Output: [real(r8) (:,:)   ]  tracer col real surface water irrigation flux (mm H2O /s)  
+          wtr_qflx_grnd_irrig_col  => col_wf%wtr_qflx_grnd_irrig       , & ! Output: [real(r8) (:,:)   ]  tracer col real groundwater irrigation flux (mm H2O /s)   
+          wtr_qflx_over_supply_col => col_wf%wtr_qflx_over_supply      , & ! Output: [real(r8) (:,:)   ]  tracer over supply irrigation flux (mm H2O /s)   
+          wtr_qflx_supply          => veg_wf%wtr_qflx_supply_patch         , & ! Output: [real(r8) (:,:)   ]  tracer irrigation supply (mm/s)      
+          wtr_qflx_surf_irrig      => veg_wf%wtr_qflx_surf_irrig_patch     , & ! Output: [real(r8) (:,:)   ]  tracer actual surface water irrigation (mm/s)      
+          wtr_qflx_grnd_irrig      => veg_wf%wtr_qflx_grnd_irrig_patch     , & ! Output: [real(r8) (:,:)   ]  tracer actual groundwater irrigation (mm/s)     
+          wtr_qflx_over_supply     => veg_wf%wtr_qflx_over_supply_patch      & ! Output: [real(r8) (:,:)   ]  tracer the portion of supply that exceed total demand (mm/s)
+         !-----end water tracer vars-----------------
           )
 
        ! Compute time step
@@ -288,6 +338,12 @@ contains
              fracsnow(p) = 0._r8          ! fraction of input precip that is snow
              fracrain(p) = 0._r8          ! fraction of input precip that is rain
 
+             if (use_wtr) then     !Huancui
+                wtr_qflx_candrip(p,:) = 0._r8      ! tracer rate of canopy runoff
+                wtr_qflx_through_snow(p,:) = 0._r8 ! tracer rain precipitation direct through canopy
+                wtr_qflx_through_rain(p,:) = 0._r8 ! tracer snow precipitation direct through canopy
+                wtr_qflx_prec_intr(p,:) = 0._r8    ! tracer intercepted precipitation
+             end if
 
              if (ctype(c) /= icol_sunwall .and. ctype(c) /= icol_shadewall) then
 
@@ -318,8 +374,18 @@ contains
                    ! Water storage of intercepted precipitation and dew
                    h2ocan(p) = max(0._r8, h2ocan(p) + dtime*qflx_prec_intr(p))
 
+                   if (use_wtr) then    !Huancui
+                      call update_wtr_flx(qflx_through_snow(p), wtr_qflx_through_snow(p,:), wtr_ratio)
+                      call update_wtr_flx(qflx_through_rain(p), wtr_qflx_through_rain(p,:), wtr_ratio)
+                      call update_wtr_flx(qflx_prec_intr(p),    wtr_qflx_prec_intr(p,:),    wtr_ratio)
+                      call update_wtr_ws(wtr_h2ocan(p,:), wtr_qflx_prec_intr(p,:), wtr_ratio, dtime)
+                   end if
+
                    ! Initialize rate of canopy runoff and snow falling off canopy
                    qflx_candrip(p) = 0._r8
+                   if (use_wtr) then  !Huancui
+                      wtr_qflx_candrip(p,:)  = 0._r8
+                   end if
 
                    ! Excess water that exceeds the leaf capacity
                    xrun = (h2ocan(p) - h2ocanmx)/dtime
@@ -327,6 +393,12 @@ contains
                    ! Test on maximum dew on leaf
                    ! Note if xrun > 0 then h2ocan must be at least h2ocanmx
                    if (xrun > 0._r8) then
+                      if (use_wtr) then  !Huancui
+                         wtr_h2ocan(p,0) = h2ocan(p)    ! this line is for testing purpose, should be removed later
+                         call cal_wtr_ratio(h2ocan(p), wtr_h2ocan(p,:), wtr_ratio, wtr_ws_ratio_temp)
+                         call update_wtr_flx(xrun, wtr_qflx_candrip(p,:), wtr_ws_ratio_temp)
+                         call update_wtr_ws(wtr_h2ocan(p,:), wtr_qflx_candrip(p,:), wtr_ratio, dtime)
+                      end if
                       qflx_candrip(p) = xrun
                       h2ocan(p) = h2ocanmx
                    end if
@@ -343,6 +415,13 @@ contains
              qflx_prec_intr(p)    = 0._r8
              fracsnow(p)          = 0._r8
              fracrain(p)          = 0._r8
+             if (use_wtr) then   !Huancui
+                wtr_h2ocan(p,:)            = 0._r8
+                wtr_qflx_candrip(p,:)      = 0._r8
+                wtr_qflx_through_snow(p,:) = 0._r8
+                wtr_qflx_through_rain(p,:) = 0._r8
+                wtr_qflx_prec_intr(p,:)    = 0._r8       
+             end if
 
           end if
 
@@ -354,11 +433,27 @@ contains
                 qflx_prec_grnd_rain(p) = forc_rain(t)
                 qflx_dirct_rain(p) = forc_rain(t)
                 qflx_leafdrip(p) = 0._r8
+                if (use_wtr) then    !Huancui
+                   call update_wtr_flx(qflx_prec_grnd_snow(p), wtr_qflx_prec_grnd_snow(p,:), wtr_ratio)
+                   call update_wtr_flx(qflx_prec_grnd_rain(p), wtr_qflx_prec_grnd_rain(p,:), wtr_ratio)
+                   call update_wtr_flx(qflx_dirct_rain(p),     wtr_qflx_dirct_rain(p,:),     wtr_ratio)
+                   wtr_qflx_leafdrip(p,:) = 0._r8
+                end if
              else
                 qflx_prec_grnd_snow(p) = qflx_through_snow(p) + (qflx_candrip(p) * fracsnow(p))
                 qflx_prec_grnd_rain(p) = qflx_through_rain(p) + (qflx_candrip(p) * fracrain(p))
                 qflx_dirct_rain(p) = qflx_through_rain(p)
                 qflx_leafdrip(p) = qflx_candrip(p) * fracrain(p)
+                if (use_wtr) then    !Huancui
+                   do ntr = 1, nlevwtr
+                      if (wtr_ratio(ntr) .ge. 0.0) then
+                         wtr_qflx_prec_grnd_snow(p,ntr) = wtr_qflx_through_snow(p,ntr) + (wtr_qflx_candrip(p,ntr) * fracsnow(p))
+                         wtr_qflx_prec_grnd_rain(p,ntr) = wtr_qflx_through_rain(p,ntr) + (wtr_qflx_candrip(p,ntr) * fracrain(p))
+                         wtr_qflx_dirct_rain(p,ntr)     = wtr_qflx_through_rain(p,ntr) 
+                         wtr_qflx_leafdrip(p,ntr)       = wtr_qflx_candrip(p,ntr) * fracrain(p)
+                      end if
+                   end do
+                end if
              end if
              ! Urban sunwall and shadewall have no intercepted precipitation
           else
@@ -366,6 +461,12 @@ contains
              qflx_prec_grnd_rain(p) = 0.
              qflx_dirct_rain(p) = 0._r8
              qflx_leafdrip(p) = 0._r8
+             if (use_wtr) then     !Huancui
+                wtr_qflx_prec_grnd_snow(p,:) = 0.
+                wtr_qflx_prec_grnd_rain(p,:) = 0.
+                wtr_qflx_dirct_rain(p,:) = 0._r8
+                wtr_qflx_leafdrip(p,:) = 0._r8
+             end if
           end if
 
           ! Determine whether we're irrigating here; set qflx_irrig appropriately
@@ -377,6 +478,12 @@ contains
              qflx_irrig(p) = 0._r8
              qflx_irrig_grid(g) = 0._r8
           end if
+          if (use_wtr) then !Huancui: right now do not tag irrigation water except for dimension 1
+             wtr_qflx_irrig(p,:)      = 0._r8
+             wtr_qflx_irrig_grid(g,:) = 0._r8
+             wtr_qflx_irrig(p,1)      = qflx_irrig(p) 
+             wtr_qflx_irrig_grid(g,1) = qflx_irrig_grid(g)
+          end if 
 
           ! Add irrigation water directly onto ground (bypassing canopy interception)
           ! Note that it's still possible that (some of) this irrigation water will runoff (as runoff is computed later)
@@ -428,10 +535,34 @@ contains
             qflx_over_supply(p) = 0._r8
             qflx_supply(p) = 0._r8 !no water supplied by MOSART
          end if
+         if (use_wtr) then !Huancui: right now do not tag irrigation water except for dimension 1
+            wtr_qflx_surf_irrig(p,:)  = 0._r8
+            wtr_qflx_grnd_irrig(p,:)  = 0._r8
+            wtr_qflx_real_irrig(p,:)  = 0._r8
+            wtr_qflx_over_supply(p,:) = 0._r8
+            wtr_qflx_supply(p,:)      = 0._r8 !no water supplied by MOSART
+            wtr_qflx_surf_irrig(p,1)  = qflx_surf_irrig(p)
+            wtr_qflx_grnd_irrig(p,1)  = qflx_grnd_irrig(p)
+            wtr_qflx_real_irrig(p,1)  = qflx_real_irrig(p)
+            wtr_qflx_over_supply(p,1) = qflx_over_supply(p)
+            wtr_qflx_supply(p,1)      = qflx_supply(p)
+            do ntr = 1, nlevwtr
+               if (wtr_ratio(ntr) .ge. 0.0) then
+                  wtr_qflx_prec_grnd_rain(p,ntr) = wtr_qflx_prec_grnd_rain(p,ntr) + wtr_qflx_real_irrig(p,ntr)
+               end if 
+            end do
+         end if
 
           ! Done irrigation
 
           qflx_prec_grnd(p) = qflx_prec_grnd_snow(p) + qflx_prec_grnd_rain(p)
+          if (use_wtr) then     !Huancui
+             do ntr = 1, nlevwtr
+                if (wtr_ratio(ntr) .ge. 0.0) then
+                   wtr_qflx_prec_grnd(p,ntr) = wtr_qflx_prec_grnd_snow(p,ntr) + wtr_qflx_prec_grnd_rain(p,ntr)
+                end if
+             end do
+          end if
 
           if (.not. use_firn_percolation_and_compaction) then
              if (do_capsnow(c)) then
@@ -440,15 +571,32 @@ contains
 
                 qflx_snow_grnd_patch(p) = 0._r8
                 qflx_rain_grnd(p) = 0._r8
+                if (use_wtr) then    !Huancui
+                    wtr_qflx_snwcp_liq(p,:) = wtr_qflx_prec_grnd_rain(p,:)
+                    wtr_qflx_snwcp_ice(p,:) = wtr_qflx_prec_grnd_snow(p,:)
+
+                    wtr_qflx_snow_grnd_patch(p,:) = 0._r8
+                    wtr_qflx_rain_grnd(p,:) = 0._r8
+                end if
              else
                 qflx_snwcp_liq(p) = 0._r8
                 qflx_snwcp_ice(p) = 0._r8
                 qflx_snow_grnd_patch(p) = qflx_prec_grnd_snow(p)           ! ice onto ground (mm/s)
                 qflx_rain_grnd(p)     = qflx_prec_grnd_rain(p)           ! liquid water onto ground (mm/s)
+                if (use_wtr) then    !Huancui
+                   wtr_qflx_snwcp_liq(p,:) = 0._r8
+                   wtr_qflx_snwcp_ice(p,:) = 0._r8
+                   wtr_qflx_snow_grnd_patch(p,:) = wtr_qflx_prec_grnd_snow(p,:)           ! ice onto ground (mm/s)
+                   wtr_qflx_rain_grnd(p,:)     = wtr_qflx_prec_grnd_rain(p,:)           ! liquid water onto ground (mm/s)
+                end if
              end if
           else
              qflx_snow_grnd_patch(p) = qflx_prec_grnd_snow(p)           ! ice onto ground (mm/s)
-             qflx_rain_grnd(p)     = qflx_prec_grnd_rain(p)           ! liquid water onto ground (mm/s)       
+             qflx_rain_grnd(p)     = qflx_prec_grnd_rain(p)           ! liquid water onto ground (mm/s) 
+             if (use_wtr) then    !Huancui
+                wtr_qflx_snow_grnd_patch(p,:) = wtr_qflx_prec_grnd_snow(p,:)           ! ice onto ground (mm/s)
+                wtr_qflx_rain_grnd(p,:)     = wtr_qflx_prec_grnd_rain(p,:)           ! liquid water onto ground (mm/s)
+             end if      
           endif
 
        end do ! (end pft loop)
@@ -478,14 +626,42 @@ contains
             qflx_grnd_irrig(bounds%begp:bounds%endp), &
             qflx_grnd_irrig_col(bounds%begc:bounds%endc))
 
+       if (use_wtr) then     !Huancui
+          do ntr = 1, nlevwtr
+             if (wtr_ratio(ntr) .ge. 0.0) then
+                call p2c(bounds, num_nolakec, filter_nolakec, &
+                     wtr_qflx_snow_grnd_patch(bounds%begp:bounds%endp,ntr), &
+                     wtr_qflx_snow_grnd_col(bounds%begc:bounds%endc,ntr))
+                        
+                ! Update column level irrigation supple for balance check       
+                call p2c(bounds, num_nolakec, filter_nolakec, &
+                     wtr_qflx_over_supply(bounds%begp:bounds%endp,ntr), &
+                     wtr_qflx_over_supply_col(bounds%begc:bounds%endc,ntr))
+
+                call p2c(bounds, num_nolakec, filter_nolakec, &
+                     wtr_qflx_surf_irrig(bounds%begp:bounds%endp,ntr), &
+                     wtr_qflx_surf_irrig_col(bounds%begc:bounds%endc,ntr))
+
+                call p2c(bounds, num_nolakec, filter_nolakec, &
+                     wtr_qflx_grnd_irrig(bounds%begp:bounds%endp,ntr), &
+                     wtr_qflx_grnd_irrig_col(bounds%begc:bounds%endc,ntr))
+             end if
+          end do
+       end if
+
        ! apply gridcell flood water flux to non-lake columns
        do f = 1, num_nolakec
           c = filter_nolakec(f)
           g = cgridcell(c)
           if (ctype(c) /= icol_sunwall .and. ctype(c) /= icol_shadewall) then      
              qflx_floodc(c) = qflx_floodg(g)
+             if (use_wtr) then  !Huancui: right now do not tag RTM flood water except for dimension 1
+                wtr_qflx_floodc(c,:)  = 0._r8
+                wtr_qflx_floodc(c,1)  = qflx_floodc(c)
+             end if
           else
              qflx_floodc(c) = 0._r8
+             if (use_wtr) wtr_qflx_floodc(c,:) = 0._r8    !Huancui
           endif
        enddo
 
@@ -507,14 +683,26 @@ contains
           ! Progress Rep. 1, Alta Avalanche Study Center:Snow Layer Densification.
 
           qflx_snow_h2osfc(c) = 0._r8
+          if (use_wtr) wtr_qflx_snow_h2osfc(c,:) = 0._r8    !Huancui
           ! set temporary variables prior to updating
           temp_snow_depth=snow_depth(c)
+          if (use_wtr) wtr_temp_snow_depth(:) = wtr_snow_depth(c,:)   !Huancui
           ! save initial snow content
           do j= -nlevsno+1,snl(c)
              swe_old(c,j) = 0.0_r8
+             if (use_wtr) then   !Huancui
+                wtr_swe_old(c,j,:) = 0.0_r8
+             end if
           end do
           do j= snl(c)+1,0
              swe_old(c,j)=h2osoi_liq(c,j)+h2osoi_ice(c,j)
+             if (use_wtr) then   !Huancui
+                do ntr = 1, nlevwtr
+                   if (wtr_ratio(ntr) .ge. 0.0) then
+                      wtr_swe_old(c,j, ntr) = wtr_h2osoi_liq(c,j,ntr)+wtr_h2osoi_ice(c,j,ntr)
+                   end if
+                end do
+             end if
           enddo
 
           if (do_capsnow(c) .and. .not. use_firn_percolation_and_compaction) then
@@ -522,6 +710,14 @@ contains
              newsnow(c) = qflx_snow_grnd_col(c) * dtime
              frac_sno(c)=1._r8
              int_snow(c) = 5.e2_r8
+             if (use_wtr) then   !Huancui
+                do ntr = 1, ntr
+                   if (wtr_ratio(ntr) .ge. 0.0) then
+                      wtr_newsnow(c,ntr) = wtr_qflx_snow_grnd_col(c,ntr) *dtime
+                   end if
+                end do 
+                wtr_int_snow(c,1) = int_snow(c)
+             end if
           else
              if (.not. use_firn_percolation_and_compaction) then
                 if (forc_t(t) > tfrz + 2._r8) then
@@ -541,6 +737,16 @@ contains
 
              ! snowmelt from previous time step * dtime
              snowmelt(c) = qflx_snow_melt(c) * dtime
+
+             if (use_wtr) then   !Huancui
+                do ntr = 1, nlevwtr
+                   if (wtr_ratio(ntr) .ge. 0.0) then
+                      wtr_newsnow(c,ntr)  = wtr_qflx_snow_grnd_col(c,ntr) * dtime
+                      wtr_int_snow(c,ntr) = max(wtr_int_snow(c,ntr), wtr_h2osno(c,ntr))
+                      wtr_snowmelt(c,ntr) = wtr_qflx_snow_melt(c,ntr) * dtime
+                   end if
+                end do
+             end if
 
              ! set shape factor for accumulation of snow
              accum_factor=0.1
@@ -567,6 +773,16 @@ contains
                    temp_intsnow= (h2osno(c) + newsnow(c)) &
                         / (0.5*(cos(rpi*(1._r8-max(frac_sno(c),1e-6_r8))**(1./n_melt(c)))+1._r8))
                    int_snow(c) = min(1.e8_r8,temp_intsnow)
+
+                   if (use_wtr) then
+                      do ntr = 1, nlevwtr
+                         if (wtr_ratio(ntr) .ge. 0.0) then
+                            wtr_temp_intsnow = (wtr_h2osno(c,ntr) + wtr_newsnow(c,ntr)) &
+                                    / (0.5*(cos(rpi*(1._r8-max(frac_sno(c),1e-6_r8))**(1./n_melt(c)))+1._r8))
+                            wtr_int_snow(c,ntr) = min(1.e8_r8,wtr_temp_intsnow)
+                         end if
+                      end do
+                   end if
                 endif
 
                 !====================================================================
@@ -575,12 +791,17 @@ contains
                 if (subgridflag ==1 .and. .not. urbpoi(l)) then
                    if (frac_sno(c) > 0._r8)then
                       snow_depth(c)=snow_depth(c) + newsnow(c)/(bifall(c) * frac_sno(c))
+                      if (use_wtr) then  !Huancui
+                         call update_wtr_ws(wtr_snow_depth(c,:), wtr_newsnow(c,:), wtr_ratio, 1/(bifall(c) * frac_sno(c)))
+                      end if
                    else
                       snow_depth(c)=0._r8
+                      if (use_wtr) wtr_snow_depth(c,:) = 0._r8  !Huancui
                    end if
                 else
                    ! for uniform snow cover
                    snow_depth(c)=snow_depth(c)+newsnow(c)/bifall(c)
+                   if (use_wtr) call update_wtr_ws(wtr_snow_depth(c,:), wtr_newsnow(c,:), wtr_ratio, 1/(bifall(c)))    !Huancui
                 endif
 
                 ! use original fsca formulation (n&y 07)
@@ -607,12 +828,37 @@ contains
                    temp_intsnow= (h2osno(c) + newsnow(c)) &
                         / (0.5*(cos(rpi*(1._r8-max(frac_sno(c),1e-6_r8))**(1./n_melt(c)))+1._r8))
                    int_snow(c) = min(1.e8_r8,temp_intsnow)
+                   if (use_wtr) then   !Huancui
+                      wtr_int_snow(c,:)  = 0.
+                      do ntr = 1, nlevwtr
+                         if (wtr_ratio(ntr) .ge. 0.0) then
+                            wtr_temp_intsnow = (wtr_h2osno(c,ntr) + wtr_newsnow(c,ntr)) &
+                                    / (0.5*(cos(rpi*(1._r8-max(frac_sno(c),1e-6_r8))**(1./n_melt(c)))+1._r8))
+                            wtr_int_snow(c,ntr) = min(1.e8_r8,wtr_temp_intsnow)
+                         end if
+                      end do
+                   end if
 
                    ! update snow_depth and h2osno to be consistent with frac_sno, z_avg
                    if (subgridflag ==1 .and. .not. urbpoi(l)) then
+                      if (use_wtr) then      !Huancui
+                         call cal_wtr_ratio(snow_depth(c), wtr_snow_depth(c,:), wtr_ratio, wtr_ws_ratio_temp)
+                         do ntr = 1,nlevwtr 
+                            if (wtr_ratio(ntr) .ge. 0.0) then
+                               wtr_snow_depth(c,ntr) = z_avg/frac_sno(c)*wtr_ws_ratio_temp(ntr)
+                            end if
+                         end do
+                      end if
                       snow_depth(c)=z_avg/frac_sno(c)
                    else
                       snow_depth(c)=newsnow(c)/bifall(c)
+                      if (use_wtr) then    !Huancui
+                         do ntr = 1, nlevwtr
+                            if (wtr_ratio(ntr) .ge. 0.0) then
+                               wtr_snow_depth(c,ntr) = wtr_newsnow(c,ntr)/bifall(c)
+                            end if
+                         end do
+                      end if
                    endif
                    ! use n&y07 formulation
                    if (oldfflag == 1) then 
@@ -626,6 +872,7 @@ contains
                    z_avg = 0._r8
                    snow_depth(c) = 0._r8
                    frac_sno(c) = 0._r8
+                   if (use_wtr) wtr_snow_depth(c,:) = 0._r8   !Huancui
                 endif
              endif ! end of h2osno > 0
 
@@ -635,6 +882,12 @@ contains
              ! update h2osno for new snow
              h2osno(c) = h2osno(c) + newsnow(c) 
              int_snow(c) = int_snow(c) + newsnow(c)
+
+             if (use_wtr) then    !Huancui
+                wtr_qflx_snow_h2osfc(c,:) = 0._r8
+                call update_wtr_ws(wtr_h2osno(c,:), wtr_newsnow(c,:), wtr_ratio, 1.0_r8)
+                call update_wtr_ws(wtr_int_snow(c,:), wtr_newsnow(c,:),wtr_ratio, 1.0_r8)
+             end if
 
              ! update change in snow depth
              dz_snowf = (snow_depth(c) - temp_snow_depth) / dtime
@@ -655,6 +908,10 @@ contains
           if (ltype(l)==istwet .and. t_grnd(c)>tfrz) then
              h2osno(c)=0._r8
              snow_depth(c)=0._r8
+             if (use_wtr) then    !Huancui
+                wtr_h2osno(c,:)    =0._r8
+                wtr_snow_depth(c,:)=0._r8
+             end if
           end if
 
           ! When the snow accumulation exceeds 10 mm, initialize snow layer
@@ -674,6 +931,15 @@ contains
                 h2osoi_liq(c,0) = 0._r8                   ! kg/m2
                 frac_iceold(c,0) = 1._r8
 
+                if (use_wtr) then      !Huancui
+                   do ntr = 1,nlevwtr
+                      if (wtr_ratio(ntr) .ge. 0.0) then
+                         wtr_h2osoi_ice(c,0,ntr) = wtr_h2osno(c,ntr)               ! kg/m2
+                         wtr_h2osoi_liq(c,0,ntr) = 0._r8                   ! kg/m2
+                      end if
+                   end do
+                end if
+
                 ! intitialize SNICAR variables for fresh snow:
                 call aerosol_vars%Reset(column=c)
                 ! call waterstate_vars%Reset(column=c)
@@ -691,6 +957,15 @@ contains
                 h2osoi_liq(c,0) = 0._r8                   ! kg/m2
                 frac_iceold(c,0) = 1._r8
 
+                if (use_wtr) then      !Huancui
+                   do ntr = 1,nlevwtr
+                      if (wtr_ratio(ntr) .ge. 0.0) then
+                         wtr_h2osoi_ice(c,0,ntr) = wtr_h2osno(c,ntr)               ! kg/m2
+                         wtr_h2osoi_liq(c,0,ntr) = 0._r8                   ! kg/m2
+                      end if
+                   end do
+                end if
+
                 ! intitialize SNICAR variables for fresh snow:
                 call aerosol_vars%Reset(column=c)
                 ! call waterstate_vars%Reset(column=c)
@@ -705,13 +980,18 @@ contains
           if (snl(c) < 0 .and. newnode == 0) then
              h2osoi_ice(c,snl(c)+1) = h2osoi_ice(c,snl(c)+1)+newsnow(c)
              dz(c,snl(c)+1) = dz(c,snl(c)+1)+dz_snowf*dtime
+
+             if (use_wtr)  then    !Huancui
+                call update_wtr_ws(wtr_h2osoi_ice(c,snl(c)+1,:), wtr_newsnow(c,:),wtr_ratio, 1.0_r8)
+             end if
           end if
 
        end do
 
        ! update surface water fraction (this may modify frac_sno)
        call FracH2oSfc(bounds, num_nolakec, filter_nolakec, &
-             col_wf%qflx_h2osfc2topsoi, dtime)
+             col_wf%qflx_h2osfc2topsoi, dtime &
+             , col_wf%wtr_qflx_h2osfc2topsoi, wtr_ratio)    !Huancui
 
      end associate 
 
@@ -774,7 +1054,7 @@ contains
 
    !-----------------------------------------------------------------------
    subroutine FracH2OSfc(bounds, num_h2osfc, filter_h2osfc, &
-         qflx_h2osfc2topsoi,dtime, no_update)
+         qflx_h2osfc2topsoi,dtime,wtr_qflx_h2osfc2topsoi,wtr_ratio, no_update)
      !
      ! !DESCRIPTION:
      ! Determine fraction of land surfaces which are submerged  
@@ -790,7 +1070,9 @@ contains
      integer               , intent(in)           :: num_h2osfc       ! number of column points in column filter
      integer               , intent(in)           :: filter_h2osfc(:) ! column filter 
      real(r8)              , intent(inout)        :: qflx_h2osfc2topsoi(bounds%begc:bounds%endc)     
-     real(r8)              , intent(in)           :: dtime     
+     real(r8)              , intent(in)           :: dtime 
+     real(r8)              , intent(inout)        :: wtr_qflx_h2osfc2topsoi(bounds%begc:bounds%endc,1:nlevwtr)     
+     real(r8)              , intent(in)           :: wtr_ratio(1:nlevwtr)
      integer               , intent(in), optional :: no_update        ! flag to make calculation w/o updating variables
      !
      ! !LOCAL VARIABLES:
@@ -798,6 +1080,7 @@ contains
      real(r8):: d,fd,dfdd      ! temporary variable for frac_h2oscs iteration
      real(r8):: sigma          ! microtopography pdf sigma in mm
      real(r8):: min_h2osfc
+     integer :: ntr            ! Huancui
      !-----------------------------------------------------------------------
 
      associate(                                 & 
@@ -811,6 +1094,9 @@ contains
           frac_sno_eff => col_ws%frac_sno_eff , & ! Output: [real(r8) (:)   ] eff. fraction of ground covered by snow (0 to 1)  
           frac_h2osfc  => col_ws%frac_h2osfc  , & ! Output: [real(r8) (:)   ] col fractional area with surface water greater than zero 
           frac_h2osfc_act => col_ws%frac_h2osfc_act & ! Output: [real(r8) (:)   ] col fractional area with surface water greater than zero
+         ,wtr_h2osno       => col_ws%wtr_h2osno       , & ! Input:  [real(r8) (:,:)   ] tracer snow water (mm H2O)                               
+          wtr_h2osoi_liq   => col_ws%wtr_h2osoi_liq   , & ! Output: [real(r8) (:,:) ] tracer liquid water (col,lyr) [kg/m2]                  
+          wtr_h2osfc       => col_ws%wtr_h2osfc        & ! Output: [real(r8) (:,:)   ] tracer surface water (mm) 
           )
 
        ! arbitrary lower limit on h2osfc for safer numerics...
@@ -820,6 +1106,7 @@ contains
           c = filter_h2osfc(f)
           l = col_pp%landunit(c)
           qflx_h2osfc2topsoi(c) = 0._r8
+          if (use_wtr) wtr_qflx_h2osfc2topsoi(c,:) = 0._r8     !Huancui
           ! h2osfc only calculated for soil vegetated land units
           if (lun_pp%itype(l) == istsoil .or. lun_pp%itype(l) == istcrop) then
 
@@ -848,6 +1135,15 @@ contains
                 h2osoi_liq(c,1) = h2osoi_liq(c,1) + h2osfc(c)
                 qflx_h2osfc2topsoi(c) = h2osfc(c)/dtime                
                 h2osfc(c)=0._r8
+!                if (use_wtr) then
+!                   call update_wtr_ws(wtr_h2osoi_liq(c,1,:), wtr_h2osfc(c,:), wtr_ratio, 1.0_r8)
+!                   do ntr = 1, nlevwtr
+!                      if (wtr_ratio(ntr) .ge. 0.0) then
+!                         wtr_qflx_h2osfc2topsoi(c,ntr) = wtr_h2osfc(c,ntr)/dtime
+!                         wtr_h2osfc(c,ntr)=0._r8
+!                      end if
+!                   end do
+!                end if
              endif
              
              frac_h2osfc_act(c) = frac_h2osfc(c)

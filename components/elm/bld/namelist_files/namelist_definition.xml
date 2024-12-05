@@ -2047,6 +2047,39 @@ Runtime flag to turn on/off variable soil thickness.
 Runtime flag to turn on/off lake water storage.
 </entry>
 
+<!-- ======================================================================================== -->
+<!-- Namelist options for ELM water tracer capability  (Huancui)                              -->
+<!-- ======================================================================================== -->
+
+<entry id="use_wtr" type="logical" category="default_settings"
+        group="elm_inparm" valid_values="">
+Runtime flag to turn on/off ELM water tracer capability.
+</entry>
+<entry id="nlevwtr"
+       type="integer"
+       category="default_settings"
+       group="elm_inparm"
+       valid_values="0,5"
+       value="0">
+sets the number of species of water tracers. [0,5],
+written only if use_wtr variable is .true.,
+0=none,
+5=+5 tracer species,
+default: 0
+</entry>
+<entry id="wtr_tag_starttime" type="char*32(10)" category="default_settings"
+       group="elm_inparm"
+       valid_values="" >
+Array to set the start time of each tagging event.
+    in the form of YYYY-MM-DD:HH
+</entry>
+<entry id="wtr_tag_endtime" type="char*32(10)" category="default_settings"
+       group="elm_inparm"
+       valid_values="" >
+Array to set the end time of each tagging event.
+    in the form of YYYY-MM-DD:HH
+</entry>
+
 <!-- ========================================================================================  -->
 <!-- Namelist options for downscaling from grid to topounit                                    -->
 <!-- ========================================================================================  -->

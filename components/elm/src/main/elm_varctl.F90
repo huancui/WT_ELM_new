@@ -19,6 +19,10 @@ module elm_varctl
   public :: cnallocate_carbonphosphorus_only_set
   public :: cnallocate_carbonphosphorus_only
   public :: get_carbontag ! get the tag for carbon simulations
+  public :: update_wtr_flx    !Huancui
+  public :: update_wtr_ws     !Huancui
+  public :: cal_wtr_ratio     !Huancui
+  public :: check_ifnan_ifinf !Huancui
   !
   private
   save
@@ -395,6 +399,14 @@ module elm_varctl
   logical, public :: fan_to_bgc_crop     = .false.
   logical, public :: fan_to_bgc_veg      = .false.
  
+  !----------------------------------------------------------
+  ! Huancui: water tracer capability
+  !----------------------------------------------------------
+  logical, public :: use_wtr             = .false.
+  integer, public :: nlevwtr             = 0             ! number of tracer species
+  character(len=32), public :: wtr_tag_starttime(10) = ' '
+  character(len=32), public :: wtr_tag_endtime(10)   = ' ' 
+  ! add other variables later
 
   !----------------------------------------------------------
   ! VSFM switches
@@ -660,4 +672,78 @@ contains
     endif
   end function get_carbontag
 
+  !-----Huancui Hu: water tracer calculation subroutines-------
+  subroutine update_wtr_flx(total_var1, tracer_var1, wtr_ratio)
+    real(r8),  intent(in)    :: total_var1
+    real(r8),  intent(inout) :: tracer_var1(1:nlevwtr)
+    real(r8),  intent(in)    :: wtr_ratio(1:nlevwtr)
+    integer                  :: ntr   !local var
+
+    do ntr = 1, nlevwtr
+       if (wtr_ratio(ntr) .ge. 0.0) then
+          tracer_var1(ntr)   = total_var1 * wtr_ratio(ntr)
+       end if
+    end do
+    call check_ifnan_ifinf(nlevwtr, tracer_var1)
+  end subroutine update_wtr_flx
+
+  subroutine update_wtr_ws(tracer_ws1, tracer_flx1,wtr_ratio, factor1)
+    real(r8),  intent(inout) :: tracer_ws1(1:nlevwtr)
+    real(r8),  intent(in)    :: tracer_flx1(1:nlevwtr)
+    real(r8),  intent(in)    :: wtr_ratio(1:nlevwtr)
+    real(r8),  intent(in)    :: factor1
+    integer                  :: ntr    !local var
+
+    do ntr = 1, nlevwtr
+       if (wtr_ratio(ntr) .ge. 0.0) then
+          tracer_ws1(ntr) = max(0._r8, tracer_ws1(ntr)+factor1*tracer_flx1(ntr))
+       end if
+    end do
+    call check_ifnan_ifinf(nlevwtr, tracer_ws1)
+  end subroutine update_wtr_ws
+
+  subroutine cal_wtr_ratio(total_ws1, tracer_ws1, wtr_ratio_in, wtr_ratio_out)
+    real(r8),  intent(in)    :: total_ws1
+    real(r8),  intent(inout) :: tracer_ws1(1:nlevwtr)
+    real(r8),  intent(in)    :: wtr_ratio_in(1:nlevwtr)
+    real(r8),  intent(out)   :: wtr_ratio_out(1:nlevwtr)
+    integer                  :: ntr
+
+    wtr_ratio_out(:)   = -1._r8
+    do ntr = 1, nlevwtr
+       if (wtr_ratio_in(ntr) .ge. 0.0) then
+          if (ntr .eq. 1) then
+             if (abs(total_ws1-tracer_ws1(ntr)) .gt. 1e-6) then
+!                write(iulog,*) 'large difference between tracer_1 and total variable, set to be identical'
+                tracer_ws1(ntr) = total_ws1
+             end if
+          end if
+          if (total_ws1 .gt. 1e-6_r8) then
+              wtr_ratio_out(ntr)  = max(0._r8, tracer_ws1(ntr)/total_ws1)
+              wtr_ratio_out(ntr)  = min(1.0,   wtr_ratio_out(ntr))
+          else
+              wtr_ratio_out(ntr)  = 0._r8
+          end if
+       end if
+    end do
+    call check_ifnan_ifinf(nlevwtr, wtr_ratio_out)
+
+  end subroutine cal_wtr_ratio
+
+  subroutine check_ifnan_ifinf(dim_in, value_in)
+     integer,  intent(in)    :: dim_in
+     real(r8), intent(in)    :: value_in(1:dim_in)
+     integer                 :: ntr   !local var
+
+     do ntr = 1, dim_in
+!        if (value_in(ntr)+1 .eq. value_in(ntr)) then
+!           write(iulog, *) "infinity value found:", value_in
+!        end if
+        if (value_in(ntr) .ne. value_in(ntr)) then
+           write(iulog, *) "NaN value found:", value_in
+        end if
+     end do
+
+  end subroutine 
+  !-----end water tracer subroutines
 end module elm_varctl

@@ -21,6 +21,7 @@ module VegetationDataType
   use elm_varctl      , only : iulog, use_cn, spinup_state, spinup_mortality_factor, use_fates
   use elm_varctl      , only : nu_com, use_crop, use_c13
   use elm_varctl      , only : use_lch4, use_betr
+  use elm_varctl      , only : use_wtr, nlevwtr
   use histFileMod     , only : hist_addfld1d, hist_addfld2d, no_snow_normal
   use ncdio_pio       , only : file_desc_t, ncd_io, ncd_double, ncd_int, ncd_inqvdlen
   use decompMod       , only : bounds_type, get_proc_global
@@ -104,6 +105,14 @@ module VegetationDataType
     real(r8), pointer :: begwb        (:) => null() ! water mass begining of the time step
     real(r8), pointer :: endwb        (:) => null() ! water mass end of the time step
     real(r8), pointer :: errh2o       (:) => null() ! water conservation error (mm H2O)
+    !-----Huancui: water tracer variables------
+    real(r8), pointer :: wtr_h2ocan       (:,:) => null() ! tracer canopy water (kg/m2)
+    real(r8), pointer :: wtr_q_ref2m      (:,:) => null() ! tracer 2 m height surface specific humidity (kg H2O/kg moist air)
+    real(r8), pointer :: wtr_begwb        (:,:) => null() ! tracer water mass begining of the time step
+    real(r8), pointer :: wtr_endwb        (:,:) => null() ! tracer water mass end of the time step
+    real(r8), pointer :: wtr_errh2o       (:,:) => null() ! tracer water conservation error (mm H2O)
+    !------------------------------------------
+
   contains
     procedure, public :: Init    => veg_ws_init
     procedure, public :: Restart => veg_ws_restart
@@ -384,6 +393,37 @@ module VegetationDataType
 
     real(r8), pointer :: qflx_over_supply_patch   (:)   => null()   ! over supplied irrigation
     integer , pointer :: n_irrig_steps_left (:)   => null() ! number of time steps for which we still need to irrigate today (if 0, ignore)
+
+    !-----Huancui: water tracer variables-----
+    real(r8), pointer :: wtr_qflx_prec_grnd     (:,:)   => null() ! tracer water onto ground including canopy runoff [kg/(m2 s)]
+    real(r8), pointer :: wtr_qflx_rain_grnd     (:,:)   => null() ! tracer rain on ground after interception (mm H2O/s) [+]
+    real(r8), pointer :: wtr_qflx_snow_grnd     (:,:)   => null() ! tracer snow on ground after interception (mm H2O/s) [+]
+    real(r8), pointer :: wtr_qflx_sub_snow      (:,:)   => null() ! tracer sublimation rate from snow pack (mm H2O /s) [+]
+    real(r8), pointer :: wtr_qflx_evap_soi      (:,:)   => null() ! tracer soil evaporation (mm H2O/s) (+ = to atm)
+    real(r8), pointer :: wtr_qflx_evap_veg      (:,:)   => null() ! tracer vegetation evaporation (mm H2O/s) (+ = to atm)
+    real(r8), pointer :: wtr_qflx_evap_can      (:,:)   => null() ! tracer evaporation from leaves and stems (mm H2O/s) (+ = to atm)
+    real(r8), pointer :: wtr_qflx_evap_tot      (:,:)   => null() ! tracer pft_wtr_qflx_evap_soi + pft_wtr_qflx_evap_veg + wtr_qflx_tran_veg
+    real(r8), pointer :: wtr_qflx_evap_grnd     (:,:)   => null() ! tracer ground surface evaporation rate (mm H2O/s) [+]
+    real(r8), pointer :: wtr_qflx_snwcp_liq     (:,:)   => null() ! tracer excess rainfall due to snow capping (mm H2O /s)
+    real(r8), pointer :: wtr_qflx_snwcp_ice     (:,:)   => null() ! tracer excess snowfall due to snow capping (mm H2O /s)
+    real(r8), pointer :: wtr_qflx_tran_veg      (:,:)   => null() ! tracer vegetation transpiration (mm H2O/s) (+ = to atm)
+    real(r8), pointer :: wtr_qflx_dew_snow      (:,:)   => null() ! tracer surface dew added to snow pack (mm H2O /s) [+]
+    real(r8), pointer :: wtr_qflx_dew_grnd      (:,:)   => null() ! tracer ground surface dew formation (mm H2O /s) [+]
+    real(r8), pointer :: wtr_qflx_prec_intr     (:,:)   => null() ! tracer interception of precipitation [mm/s]
+    real(r8), pointer :: wtr_qflx_dirct_rain    (:,:)   => null() ! tracer direct through rainfall [mm/s]
+    real(r8), pointer :: wtr_qflx_leafdrip      (:,:)   => null() ! tracer leaf rain drip [mm/s]
+    real(r8), pointer :: wtr_qflx_ev_snow       (:,:)   => null() ! tracer evaporation heat flux from snow       (W/m**2) [+ to atm] ! tracer NOTE: unit shall be mm H2O/s for water NOT heat
+    real(r8), pointer :: wtr_qflx_ev_soil       (:,:)   => null() ! tracer evaporation heat flux from soil       (W/m**2) [+ to atm] ! tracer NOTE: unit shall be mm H2O/s for water NOT heat
+    real(r8), pointer :: wtr_qflx_ev_h2osfc     (:,:)   => null() ! tracer evaporation heat flux from soil       (W/m**2) [+ to atm] ! tracer NOTE: unit shall be mm H2O/s for water NOT heat
+    real(r8), pointer :: wtr_qflx_rootsoi_frac  (:,:,:) => null() !
+    real(r8), pointer :: wtr_irrig_rate               (:,:)   => null() ! tracer current irrigation rate [mm/s]
+    real(r8), pointer :: wtr_qflx_irrig_patch         (:,:)   => null()   ! tracer patch irrigation flux (mm H2O/s)
+    real(r8), pointer :: wtr_qflx_real_irrig_patch    (:,:)   => null()   ! tracer patch real irrigation flux (mm H2O/s)
+    real(r8), pointer :: wtr_qflx_grnd_irrig_patch    (:,:)   => null()   ! tracer groundwater irrigation (mm H2O/s)
+    real(r8), pointer :: wtr_qflx_surf_irrig_patch    (:,:)   => null()   ! tracer surface water irrigation(mm H2O/s)
+    real(r8), pointer :: wtr_qflx_supply_patch        (:,:)   => null()   ! tracer patch supply flux (mm H2O/s)
+    real(r8), pointer :: wtr_qflx_over_supply_patch   (:,:)   => null()   ! tracer over supplied irrigation
+    !-----end water tracer vars------------
 
   contains
     procedure, public :: Init    => veg_wf_init
@@ -1780,6 +1820,9 @@ module VegetationDataType
     !
     ! !LOCAL VARIABLES:
     integer             :: p
+    integer             :: ilev_wtr
+    character(len=32)   :: wtr_vsuffix
+    real(r8), pointer   :: data1dptr(:) ! temp. pointers for slicing larger arrays
     !------------------------------------------------------------------------
 
     !-----------------------------------------------------------------------
@@ -1796,6 +1839,13 @@ module VegetationDataType
     allocate(this%begwb               (begp:endp))          ; this%begwb             (:) = spval
     allocate(this%endwb               (begp:endp))          ; this%endwb             (:) = spval
     allocate(this%errh2o              (begp:endp))          ; this%errh2o            (:) = spval
+    if (use_wtr) then !Huancui
+       allocate(this%wtr_h2ocan              (begp:endp,1:nlevwtr))          ; this%wtr_h2ocan            (:,:) = 0._r8
+       allocate(this%wtr_q_ref2m             (begp:endp,1:nlevwtr))          ; this%wtr_q_ref2m           (:,:) = 0._r8
+       allocate(this%wtr_begwb               (begp:endp,1:nlevwtr))          ; this%wtr_begwb             (:,:) = 0._r8
+       allocate(this%wtr_endwb               (begp:endp,1:nlevwtr))          ; this%wtr_endwb             (:,:) = 0._r8
+       allocate(this%wtr_errh2o              (begp:endp,1:nlevwtr))          ; this%wtr_errh2o            (:,:) = 0._r8
+    end if
 
     !-----------------------------------------------------------------------
     ! initialize history fields for select members of veg_ws
@@ -1843,6 +1893,34 @@ module VegetationDataType
             avgflag='A', long_name='fraction of foliage that is green and dry', &
             ptr_patch=this%fdry, default='inactive')
     end if
+   
+    if (use_wtr) then
+       this%wtr_h2ocan(begp:endp,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_h2ocan(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_H2OCAN_'//trim(wtr_vsuffix), units='mm',  &
+               avgflag='A', long_name='intercepted tracer water species #'//trim(wtr_vsuffix), &
+               ptr_patch=data1dptr)!, set_lake=0._r8)
+       end do
+
+       this%wtr_q_ref2m(begp:endp,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_h2ocan(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_Q2M_'//trim(wtr_vsuffix), units='kg/kg',  &
+               avgflag='A', long_name='2m tracer specific humidity species'//trim(wtr_vsuffix), &
+               ptr_patch=data1dptr)
+       end do
+    end if
 
     !-----------------------------------------------------------------------
     ! set cold-start initial values for select members of veg_ws
@@ -1851,6 +1929,10 @@ module VegetationDataType
        this%h2ocan(p) = 0._r8
        this%fwet(p)   = 0._r8
        this%fdry(p)   = 0._r8
+       if (use_wtr) then   !Huancui
+          this%wtr_h2ocan(p,:) = 0._r8
+          this%wtr_h2ocan(p,1) = this%h2ocan(p)
+       end if
     end do
 
   end subroutine veg_ws_init
@@ -5395,6 +5477,9 @@ module VegetationDataType
     !
     ! !LOCAL VARIABLES:
     integer           :: p,l                        ! indices
+    integer             :: ilev_wtr
+    character(len=32)   :: wtr_vsuffix
+    real(r8), pointer   :: data1dptr(:) ! temp. pointers for slicing larger arrays
     !------------------------------------------------------------------------
 
     !-----------------------------------------------------------------------
@@ -5430,6 +5515,37 @@ module VegetationDataType
     allocate(this%qflx_supply_patch        (begp:endp))              ; this%qflx_supply_patch        (:)   = spval
     allocate(this%qflx_over_supply_patch   (begp:endp))              ; this%qflx_over_supply_patch   (:)   = spval
     allocate(this%n_irrig_steps_left       (begp:endp))              ; this%n_irrig_steps_left       (:)   = 0
+
+    if (use_wtr) then !Huancui
+       allocate(this%wtr_qflx_prec_grnd         (begp:endp,1:nlevwtr))             ; this%wtr_qflx_prec_grnd       (:,:)   = 0._r8
+       allocate(this%wtr_qflx_rain_grnd         (begp:endp,1:nlevwtr))             ; this%wtr_qflx_rain_grnd       (:,:)   = 0._r8
+       allocate(this%wtr_qflx_snow_grnd         (begp:endp,1:nlevwtr))             ; this%wtr_qflx_snow_grnd       (:,:)   = 0._r8
+       allocate(this%wtr_qflx_sub_snow          (begp:endp,1:nlevwtr))             ; this%wtr_qflx_sub_snow        (:,:)   = 0._r8
+       allocate(this%wtr_qflx_evap_soi          (begp:endp,1:nlevwtr))             ; this%wtr_qflx_evap_soi        (:,:)   = 0._r8
+       allocate(this%wtr_qflx_evap_veg          (begp:endp,1:nlevwtr))             ; this%wtr_qflx_evap_veg        (:,:)   = 0._r8
+       allocate(this%wtr_qflx_evap_can          (begp:endp,1:nlevwtr))             ; this%wtr_qflx_evap_can        (:,:)   = 0._r8
+       allocate(this%wtr_qflx_evap_tot          (begp:endp,1:nlevwtr))             ; this%wtr_qflx_evap_tot        (:,:)   = 0._r8
+       allocate(this%wtr_qflx_evap_grnd         (begp:endp,1:nlevwtr))             ; this%wtr_qflx_evap_grnd       (:,:)   = 0._r8
+       allocate(this%wtr_qflx_snwcp_liq         (begp:endp,1:nlevwtr))             ; this%wtr_qflx_snwcp_liq       (:,:)   = 0._r8
+       allocate(this%wtr_qflx_snwcp_ice         (begp:endp,1:nlevwtr))             ; this%wtr_qflx_snwcp_ice       (:,:)   = 0._r8
+       allocate(this%wtr_qflx_tran_veg          (begp:endp,1:nlevwtr))             ; this%wtr_qflx_tran_veg        (:,:)   = 0._r8
+       allocate(this%wtr_qflx_dew_snow          (begp:endp,1:nlevwtr))             ; this%wtr_qflx_dew_snow        (:,:)   = 0._r8
+       allocate(this%wtr_qflx_dew_grnd          (begp:endp,1:nlevwtr))             ; this%wtr_qflx_dew_grnd        (:,:)   = 0._r8
+       allocate(this%wtr_qflx_prec_intr         (begp:endp,1:nlevwtr))             ; this%wtr_qflx_prec_intr       (:,:)   = 0._r8
+       allocate(this%wtr_qflx_dirct_rain        (begp:endp,1:nlevwtr))             ; this%wtr_qflx_dirct_rain      (:,:)   = 0._r8
+       allocate(this%wtr_qflx_leafdrip          (begp:endp,1:nlevwtr))             ; this%wtr_qflx_leafdrip        (:,:)   = 0._r8
+       allocate(this%wtr_qflx_ev_snow           (begp:endp,1:nlevwtr))             ; this%wtr_qflx_ev_snow         (:,:)   = 0._r8
+       allocate(this%wtr_qflx_ev_soil           (begp:endp,1:nlevwtr))             ; this%wtr_qflx_ev_soil         (:,:)   = 0._r8
+       allocate(this%wtr_qflx_ev_h2osfc         (begp:endp,1:nlevwtr))             ; this%wtr_qflx_ev_h2osfc       (:,:)   = 0._r8
+       allocate(this%wtr_qflx_rootsoi_frac      (begp:endp,1:nlevgrnd,1:nlevwtr))  ; this%wtr_qflx_rootsoi_frac    (:,:,:) = 0._r8
+       allocate(this%wtr_irrig_rate               (begp:endp,1:nlevwtr))              ; this%wtr_irrig_rate               (:,:)   = 0._r8
+       allocate(this%wtr_qflx_irrig_patch         (begp:endp,1:nlevwtr))              ; this%wtr_qflx_irrig_patch         (:,:)   = 0._r8
+       allocate(this%wtr_qflx_real_irrig_patch    (begp:endp,1:nlevwtr))              ; this%wtr_qflx_real_irrig_patch    (:,:)   = 0._r8
+       allocate(this%wtr_qflx_grnd_irrig_patch    (begp:endp,1:nlevwtr))              ; this%wtr_qflx_grnd_irrig_patch    (:,:)   = 0._r8
+       allocate(this%wtr_qflx_surf_irrig_patch    (begp:endp,1:nlevwtr))              ; this%wtr_qflx_surf_irrig_patch    (:,:)   = 0._r8
+       allocate(this%wtr_qflx_supply_patch        (begp:endp,1:nlevwtr))              ; this%wtr_qflx_supply_patch        (:,:)   = 0._r8
+       allocate(this%wtr_qflx_over_supply_patch   (begp:endp,1:nlevwtr))              ; this%wtr_qflx_over_supply_patch   (:,:)   = 0._r8
+    end if
 
     !-----------------------------------------------------------------------
     ! initialize history fields for select members of veg_wf
@@ -5551,12 +5667,295 @@ module VegetationDataType
             ptr_patch=this%qflx_dew_snow, default='inactive', c2l_scale_type='urbanf')
     end if
 
+    if (use_wtr) then      !Huancui
+       this%wtr_qflx_irrig_patch(begp:endp,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_irrig_patch(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QIRRIG_ORIG_'//trim(wtr_vsuffix), units='mm/s', &
+            avgflag='A', long_name='Original tracer irrigation water demand (surface + ground) species #'//trim(wtr_vsuffix), &
+            ptr_patch=data1dptr)
+       end do
+   
+       this%wtr_qflx_real_irrig_patch(begp:endp,:) = spval     ! real irrig
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_real_irrig_patch(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QIRRIG_REAL_'//trim(wtr_vsuffix), units='mm/s', &
+            avgflag='A', long_name='actual tracer water added through irrigation (surface + ground) species #'//trim(wtr_vsuffix), &
+            ptr_patch=data1dptr)
+       end do
+   
+       this%wtr_qflx_surf_irrig_patch(begp:endp,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_surf_irrig_patch(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QIRRIG_SURF_'//trim(wtr_vsuffix), units='mm/s', &
+           avgflag='A', long_name='Surface tracer water irrigation speices #'//trim(wtr_vsuffix), &
+           ptr_patch=data1dptr)
+       end do
+   
+       this%wtr_qflx_grnd_irrig_patch(begp:endp,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_grnd_irrig_patch(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QIRRIG_GRND_'//trim(wtr_vsuffix), units='mm/s', &
+           avgflag='A', long_name='Groundwater tracer irrigation species #'//trim(wtr_vsuffix), &
+           ptr_patch=data1dptr)
+       end do
+   
+       this%wtr_qflx_prec_intr(begp:endp,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_prec_intr(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QINTR_'//trim(wtr_vsuffix), units='mm/s',  &
+            avgflag='A', long_name='tracer interception species #'//trim(wtr_vsuffix), &
+            ptr_patch=data1dptr) !, set_lake=0._r8)
+       end do
+   
+       this%wtr_qflx_dirct_rain(begp:endp,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_dirct_rain(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QWTRGH_'//trim(wtr_vsuffix), units='mm/s',  &
+            avgflag='A', long_name='direct tracer rain throughfall species #'//trim(wtr_vsuffix), &
+            ptr_patch=data1dptr, c2l_scale_type='urbanf', default='inactive')
+       end do
+   
+       this%wtr_qflx_leafdrip(begp:endp,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_leafdrip(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QWDRIP_'//trim(wtr_vsuffix), units='mm/s',  &
+            avgflag='A', long_name='tracer leaf rain drip species #'//trim(wtr_vsuffix), &
+            ptr_patch=data1dptr, c2l_scale_type='urbanf', default='inactive')
+       end do
+   
+       this%wtr_qflx_prec_grnd(begp:endp,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_prec_grnd(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QDRIP_'//trim(wtr_vsuffix), units='mm/s',  &
+            avgflag='A', long_name='tracer throughfall species #'//trim(wtr_vsuffix), &
+            ptr_patch=data1dptr, c2l_scale_type='urbanf')
+       end do
+   
+       this%wtr_qflx_evap_soi(begp:endp,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_evap_soi(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QSOIL_'//trim(wtr_vsuffix), units='mm/s',  &
+            avgflag='A', long_name= 'tracer Ground evaporation (soil/snow evaporation + soil/snow sublimation - dew) species #'//trim(wtr_vsuffix), &
+            ptr_patch=data1dptr, c2l_scale_type='urbanf')
+       end do
+   
+       this%wtr_qflx_evap_can(begp:endp,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_evap_can(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QVEGE_'//trim(wtr_vsuffix), units='mm/s',  &
+            avgflag='A', long_name='tracer canopy evaporation species #'//trim(wtr_vsuffix), &
+            ptr_patch=data1dptr,c2l_scale_type='urbanf')!, set_lake=0._r8, c2l_scale_type='urbanf')
+       end do
+   
+       this%wtr_qflx_tran_veg(begp:endp,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_tran_veg(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QVEGT_'//trim(wtr_vsuffix), units='mm/s',  &
+            avgflag='A', long_name='tracer canopy transpiration species #'//trim(wtr_vsuffix), &
+            ptr_patch=data1dptr, c2l_scale_type='urbanf')!, set_lake=0._r8, c2l_scale_type='urbanf')
+       end do
+   
+       this%wtr_qflx_snwcp_liq(begp:endp,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_snwcp_liq(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QSNWCPLIQ_'//trim(wtr_vsuffix), units='mm H2O/s', &
+            avgflag='A', long_name='excess tracer rainfall due to snow capping species #'//trim(wtr_vsuffix), &
+            ptr_patch=data1dptr, c2l_scale_type='urbanf', default='inactive')
+       end do
+   
+       if (use_cn) then
+          this%wtr_qflx_rain_grnd(begp:endp,:) = spval
+          do ilev_wtr = 1,nlevwtr
+             data1dptr => this%wtr_qflx_rain_grnd(:,ilev_wtr)
+             if (nlevwtr < 10) then
+               write(wtr_vsuffix, '(I1)') ilev_wtr
+             else
+               write(wtr_vsuffix, '(I2.2)') ilev_wtr
+             end if
+             call hist_addfld1d (fname='WTR_QFLX_RAIN_GRND_'//trim(wtr_vsuffix), units='mm H2O/s', &
+               avgflag='A', long_name='tracer rain on ground after interception species #'//trim(wtr_vsuffix), &
+               ptr_patch=data1dptr, default='inactive', c2l_scale_type='urbanf')
+         end do
+       end if
+   
+       if (use_cn) then
+          this%wtr_qflx_snow_grnd(begp:endp,:) = spval
+          do ilev_wtr = 1,nlevwtr
+             data1dptr => this%wtr_qflx_snow_grnd(:,ilev_wtr)
+             if (nlevwtr < 10) then
+               write(wtr_vsuffix, '(I1)') ilev_wtr
+             else
+               write(wtr_vsuffix, '(I2.2)') ilev_wtr
+             end if
+             call hist_addfld1d (fname='WTR_QFLX_SNOW_GRND_'//trim(wtr_vsuffix), units='mm H2O/s', &
+               avgflag='A', long_name='tracer snow on ground after interception species #'//trim(wtr_vsuffix), &
+               ptr_patch=data1dptr, default='inactive', c2l_scale_type='urbanf')
+          end do
+       end if
+   
+       if (use_cn) then
+          this%wtr_qflx_evap_grnd(begp:endp,:) = spval
+          do ilev_wtr = 1,nlevwtr
+             data1dptr => this%wtr_qflx_evap_grnd(:,ilev_wtr)
+             if (nlevwtr < 10) then
+               write(wtr_vsuffix, '(I1)') ilev_wtr
+             else
+               write(wtr_vsuffix, '(I2.2)') ilev_wtr
+             end if
+             call hist_addfld1d (fname='WTR_QFLX_EVAP_GRND_'//trim(wtr_vsuffix), units='mm H2O/s', &
+               avgflag='A', long_name='tracer ground surface evaporation species #'//trim(wtr_vsuffix), &
+               ptr_patch=data1dptr, default='inactive', c2l_scale_type='urbanf')
+          end do
+       end if
+   
+       if (use_cn) then
+          this%wtr_qflx_evap_veg(begp:endp,:) = spval
+          do ilev_wtr = 1,nlevwtr
+             data1dptr => this%wtr_qflx_evap_veg(:,ilev_wtr)
+             if (nlevwtr < 10) then
+               write(wtr_vsuffix, '(I1)') ilev_wtr
+             else
+               write(wtr_vsuffix, '(I2.2)') ilev_wtr
+             end if
+             call hist_addfld1d (fname='WTR_QFLX_EVAP_VEG_'//trim(wtr_vsuffix), units='mm H2O/s', &
+               avgflag='A', long_name='tracer vegetation evaporation species #'//trim(wtr_vsuffix), &
+               ptr_patch=data1dptr, default='inactive', c2l_scale_type='urbanf')
+          end do
+       end if
+   
+       if (use_cn) then
+          this%wtr_qflx_evap_tot(begp:endp,:) = spval
+          do ilev_wtr = 1,nlevwtr
+             data1dptr => this%wtr_qflx_evap_tot(:,ilev_wtr)
+             if (nlevwtr < 10) then
+               write(wtr_vsuffix, '(I1)') ilev_wtr
+             else
+               write(wtr_vsuffix, '(I2.2)') ilev_wtr
+             end if
+             call hist_addfld1d (fname='WTR_QFLX_EVAP_TOT_'//trim(wtr_vsuffix), units='mm H2O/s', &
+               avgflag='A', long_name='wtr_qflx_evap_soi + wtr_qflx_evap_can + wtr_qflx_tran_veg speices #'//trim(wtr_vsuffix), &
+               ptr_patch=data1dptr, default='inactive', c2l_scale_type='urbanf')
+          end do
+       end if
+   
+       if (use_cn) then
+          this%wtr_qflx_dew_grnd(begp:endp,:) = spval
+          do ilev_wtr = 1,nlevwtr
+             data1dptr => this%wtr_qflx_dew_grnd(:,ilev_wtr)
+             if (nlevwtr < 10) then
+               write(wtr_vsuffix, '(I1)') ilev_wtr
+             else
+               write(wtr_vsuffix, '(I2.2)') ilev_wtr
+             end if
+             call hist_addfld1d (fname='WTR_QFLX_DEW_GRND_'//trim(wtr_vsuffix), units='mm H2O/s', &
+               avgflag='A', long_name='tracer ground surface dew formation species #'//trim(wtr_vsuffix), &
+               ptr_patch=data1dptr, default='inactive', c2l_scale_type='urbanf')
+          end do
+       end if
+   
+       if (use_cn) then
+          this%wtr_qflx_sub_snow(begp:endp,:) = spval
+          do ilev_wtr = 1,nlevwtr
+             data1dptr => this%wtr_qflx_sub_snow(:,ilev_wtr)
+             if (nlevwtr < 10) then
+               write(wtr_vsuffix, '(I1)') ilev_wtr
+             else
+               write(wtr_vsuffix, '(I2.2)') ilev_wtr
+             end if
+             call hist_addfld1d (fname='WTR_QFLX_SUB_SNOW_'//trim(wtr_vsuffix), units='mm H2O/s', &
+               avgflag='A', long_name='tracer sublimation rate from snow pack species #'//trim(wtr_vsuffix), &
+               ptr_patch=data1dptr, default='inactive', c2l_scale_type='urbanf')
+          end do
+       end if
+   
+       if (use_cn) then
+          this%wtr_qflx_dew_snow(begp:endp,:) = spval
+          do ilev_wtr = 1,nlevwtr
+             data1dptr => this%wtr_qflx_dew_snow(:,ilev_wtr)
+             if (nlevwtr < 10) then
+               write(wtr_vsuffix, '(I1)') ilev_wtr
+             else
+               write(wtr_vsuffix, '(I2.2)') ilev_wtr
+             end if
+             call hist_addfld1d (fname='WTR_QFLX_DEW_SNOW_'//trim(wtr_vsuffix), units='mm H2O/s', &
+               avgflag='A', long_name='tracer surface dew added to snow pacK species #'//trim(wtr_vsuffix), &
+               ptr_patch=data1dptr, default='inactive', c2l_scale_type='urbanf')
+          end do
+       end if
+    end if
+
     !-----------------------------------------------------------------------
     ! set cold-start initial values for select members of veg_wf
     !-----------------------------------------------------------------------
     this%qflx_evap_grnd(begp:endp) = 0.0_r8
     this%qflx_dew_grnd (begp:endp) = 0.0_r8
     this%qflx_dew_snow (begp:endp) = 0.0_r8
+    if (use_wtr) then    !Huancui
+       this%wtr_qflx_evap_grnd(begp:endp,:) = 0.0_r8
+       this%wtr_qflx_dew_grnd (begp:endp,:) = 0.0_r8
+       this%wtr_qflx_dew_snow (begp:endp,:) = 0.0_r8
+    end if
 
     do p = begp, endp
        l = veg_pp%landunit(p)
@@ -5564,6 +5963,9 @@ module VegetationDataType
        if (lun_pp%itype(l)==istsoil) then
           this%n_irrig_steps_left(p) = 0
           this%irrig_rate(p)         = 0.0_r8
+          if (use_wtr) then    !Huancui
+             this%wtr_irrig_rate(p,:)         = 0.0_r8
+          end if
        end if
     end do
 

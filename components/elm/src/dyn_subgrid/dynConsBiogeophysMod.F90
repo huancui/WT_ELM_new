@@ -29,6 +29,7 @@ module dynConsBiogeophysMod
   use LandunitType      , only : lun_pp
   use ColumnType        , only : col_pp
   use VegetationType    , only : veg_pp
+  use elm_varctl        , only : use_wtr, nlevwtr
   !
   ! !PUBLIC MEMBER FUNCTIONS:
   implicit none
@@ -78,13 +79,17 @@ contains
              ice1 => grc_ws%ice1 ,&
              heat1 => grc_es%heat1 ,&
              liquid_water_temp1 => grc_es%liquid_water_temp1 &
+           , wtr_liq1 => grc_ws%wtr_liq1 ,&    !Huancui
+             wtr_ice1 => grc_ws%wtr_ice1 &    !Huancui
              )
     call dyn_water_content(bounds,                                        &
          num_nolakec, filter_nolakec,                                     &
          num_lakec, filter_lakec,                                         &
          soilhydrology_vars, lakestate_vars,             &
          liquid_mass = liq1(bounds%begg:bounds%endg), &
-         ice_mass    = ice1(bounds%begg:bounds%endg))
+         ice_mass    = ice1(bounds%begg:bounds%endg)  &
+         , wtr_liquid_mass = wtr_liq1(bounds%begg:bounds%endg,1:nlevwtr), &
+           wtr_ice_mass    = wtr_ice1(bounds%begg:bounds%endg,1:nlevwtr))
 
     call dyn_heat_content( bounds,                                        &
          num_nolakec, filter_nolakec,                                     &
@@ -128,6 +133,9 @@ contains
     real(r8) :: delta_liq(bounds%begg:bounds%endg)  ! change in gridcell h2o liq content
     real(r8) :: delta_ice(bounds%begg:bounds%endg)  ! change in gridcell h2o ice content
     real(r8) :: delta_heat(bounds%begg:bounds%endg) ! change in gridcell heat content
+    real(r8) :: wtr_delta_liq(bounds%begg:bounds%endg, 1:nlevwtr)  ! change in gridcell h2o tracer liq content
+    real(r8) :: wtr_delta_ice(bounds%begg:bounds%endg, 1:nlevwtr)  ! change in gridcell h2o tracerice content
+    integer  :: ntr
     !---------------------------------------------------------------------------
 
     associate( &
@@ -138,6 +146,10 @@ contains
              ice2 => grc_ws%ice2 ,&
              heat2 => grc_es%heat2 ,&
              liquid_water_temp2 => grc_es%liquid_water_temp2 &
+            ,wtr_liq1 => grc_ws%wtr_liq1 ,&
+             wtr_ice1 => grc_ws%wtr_ice1 ,&
+             wtr_liq2 => grc_ws%wtr_liq2 ,&
+             wtr_ice2 => grc_ws%wtr_ice2 &
              )
     begg = bounds%begg
     endg = bounds%endg
@@ -147,7 +159,9 @@ contains
          num_lakec, filter_lakec, &
          soilhydrology_vars, lakestate_vars, &
          liquid_mass = liq2(bounds%begg:bounds%endg), &
-         ice_mass    = ice2(bounds%begg:bounds%endg))
+         ice_mass    = ice2(bounds%begg:bounds%endg)  &
+        ,wtr_liquid_mass = wtr_liq2(bounds%begg:bounds%endg,1:nlevwtr), &
+         wtr_ice_mass    = wtr_ice2(bounds%begg:bounds%endg,1:nlevwtr))
 
     call dyn_heat_content( bounds,                                &
          num_nolakec, filter_nolakec, &
@@ -161,6 +175,10 @@ contains
           delta_liq(g) = 0._r8
           delta_ice(g) = 0._r8
           delta_heat(g) = 0._r8
+          if (use_wtr) then     !Huancui
+             wtr_delta_liq(g,:) = 0._r8
+             wtr_delta_ice(g,:) = 0._r8
+          end if
       end do
     else
        do g = begg, endg
@@ -170,6 +188,14 @@ contains
           grc_wf%qflx_liq_dynbal (g) = delta_liq(g)/dtime
           grc_wf%qflx_ice_dynbal (g) = delta_ice(g)/dtime
           grc_ef%eflx_dynbal    (g) = delta_heat(g)/dtime
+          if (use_wtr) then    !Huancui
+             do ntr = 1, nlevwtr
+                wtr_delta_liq(g,ntr)  = wtr_liq2(g,ntr) - wtr_liq1(g,ntr)
+                wtr_delta_ice(g,ntr)  = wtr_ice2(g,ntr) - wtr_ice1(g,ntr)
+                grc_wf%wtr_qflx_liq_dynbal (g,ntr) = wtr_delta_liq(g,ntr)/dtime
+                grc_wf%wtr_qflx_ice_dynbal (g,ntr) = wtr_delta_ice(g,ntr)/dtime
+             end do
+          end if
        end do
     end if
     !call AdjustDeltaHeatForDeltaLiq( &
@@ -201,7 +227,7 @@ contains
        num_nolakec, filter_nolakec, &
        num_lakec, filter_lakec, &
        soilhydrology_vars,  lakestate_vars, &
-       liquid_mass, ice_mass)
+       liquid_mass, ice_mass, wtr_liquid_mass, wtr_ice_mass)
     !
     ! !DESCRIPTION:
     ! Compute gridcell total liquid and ice water contents
@@ -217,22 +243,30 @@ contains
     type(lakestate_type)     , intent(in)    :: lakestate_vars
     real(r8)                 , intent(out)   :: liquid_mass( bounds%begg: ) ! kg m-2
     real(r8)                 , intent(out)   :: ice_mass( bounds%begg: )    ! kg m-2
+    real(r8)                 , intent(out)   :: wtr_liquid_mass( bounds%begg:bounds%endg,1:nlevwtr) ! kg m-2
+    real(r8)                 , intent(out)   :: wtr_ice_mass( bounds%begg:bounds%endg,1:nlevwtr )    ! kg m-2
     !
     ! !LOCAL VARIABLES:
     real(r8) :: liquid_mass_col(bounds%begc:bounds%endc) ! kg m-2
     real(r8) :: ice_mass_col(bounds%begc:bounds%endc)    ! kg m-2
-
+    real(r8) :: wtr_liquid_mass_col(bounds%begc:bounds%endc,1:nlevwtr) ! kg m-2 Huancui
+    real(r8) :: wtr_ice_mass_col(bounds%begc:bounds%endc,1:nlevwtr)    ! kg m-2 Huancui
+    integer  :: ntr
 
     !-----------------------------------------------------------------------
     call ComputeLiqIceMassNonLake(bounds, num_nolakec, filter_nolakec, &
          soilhydrology_vars,  &
          liquid_mass_col(bounds%begc:bounds%endc), &
-         ice_mass_col(bounds%begc:bounds%endc))
+         ice_mass_col(bounds%begc:bounds%endc)     &
+         , wtr_liquid_mass_col(bounds%begc:bounds%endc,1:nlevwtr), &
+           wtr_ice_mass_col(bounds%begc:bounds%endc,1:nlevwtr))
 
     call ComputeLiqIceMassLake(bounds, num_lakec, filter_lakec, &
          lakestate_vars, &
          liquid_mass_col(bounds%begc:bounds%endc), &
-         ice_mass_col(bounds%begc:bounds%endc))
+         ice_mass_col(bounds%begc:bounds%endc)     &
+         , wtr_liquid_mass_col(bounds%begc:bounds%endc,1:nlevwtr), &
+           wtr_ice_mass_col(bounds%begc:bounds%endc,1:nlevwtr))
 
     call c2g(bounds, &
          carr = liquid_mass_col(bounds%begc:bounds%endc), &
@@ -245,6 +279,22 @@ contains
          garr = ice_mass(bounds%begg:bounds%endg), &
          c2l_scale_type = 0, &
          l2g_scale_type = 0)
+
+    if (use_wtr) then   !Huancui
+       do ntr = 1, nlevwtr
+          call c2g(bounds, &
+               carr = wtr_liquid_mass_col(bounds%begc:bounds%endc,ntr), &
+               garr = wtr_liquid_mass(bounds%begg:bounds%endg,ntr), &
+               c2l_scale_type = 0, &
+               l2g_scale_type = 0)
+
+          call c2g(bounds, &
+               carr = wtr_ice_mass_col(bounds%begc:bounds%endc,ntr), &
+               garr = wtr_ice_mass(bounds%begg:bounds%endg,ntr), &
+               c2l_scale_type = 0, &
+               l2g_scale_type = 0)
+       end do
+    end if
 
   end subroutine dyn_water_content
 

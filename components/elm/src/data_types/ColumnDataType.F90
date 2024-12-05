@@ -30,6 +30,7 @@ module ColumnDataType
   use elm_varctl      , only : pf_hmode, nu_com
   use elm_varctl      , only : use_extrasnowlayers
   use elm_varctl      , only : use_fan
+  use elm_varctl      , only : use_wtr, nlevwtr    !Huancui: water tracer vars
   use ch4varcon       , only : allowlakeprod
   use pftvarcon       , only : VMAX_MINSURF_P_vr, KM_MINSURF_P_vr, pinit_beta1, pinit_beta2
   use soilorder_varcon, only : smax, ks_sorption
@@ -168,6 +169,42 @@ module ColumnDataType
     real(r8), pointer :: vsfm_soilp_col_1d  (:)   => null() ! 1D soil liquid pressure from VSFM [Pa]
     real(r8), pointer :: h2orof             (:)   => null() ! floodplain inundation volume received from rof (mm)
     real(r8), pointer :: frac_h2orof        (:)   => null() ! floodplain inundation fraction received from rof (-)
+
+    !------Huancui: water tracer vars------
+    real(r8), pointer :: wtr_h2osoi_liq         (:,:,:) => null() ! tracer liquid water (-nlevsno+1:nlevgrnd) (kg/m2)
+    real(r8), pointer :: wtr_h2osoi_ice         (:,:,:) => null() ! tracer ice lens (-nlevsno+1:nlevgrnd) (kg/m2)
+    real(r8), pointer :: wtr_h2osoi_vol         (:,:,:) => null() ! tracer volumetric soil water (0<=h2osoi_vol<=watsat) (1:nlevgrnd) (m3/m3)
+    real(r8), pointer :: wtr_h2osfc             (:,:)   => null() ! tracer surface water (kg/m2)
+    real(r8), pointer :: wtr_h2ocan             (:,:)   => null() ! tracer canopy water integrated to column (kg/m2)
+    real(r8), pointer :: wtr_total_plant_stored_h2o(:,:)=> null() ! tracer total water in plants (kg/m2)
+    real(r8), pointer :: wtr_wslake_col         (:,:)   => null() ! tracer col lake water storage (mm H2O)
+    real(r8), pointer :: wtr_h2osoi_liqvol      (:,:,:) => null() ! tracer volumetric liquid water content (-nlevsno+1:nlevgrnd) (m3/m3)
+    real(r8), pointer :: wtr_h2osoi_icevol      (:,:,:) => null() ! tracer volumetric ice content (-nlevsno+1:nlevgrnd) (m3/m3)
+    real(r8), pointer :: wtr_h2osoi_liq_old     (:,:,:) => null() ! tracer values from previous time step
+    real(r8), pointer :: wtr_h2osoi_ice_old     (:,:,:) => null() ! tracer values from previous time step
+    real(r8), pointer :: wtr_swe_old            (:,:,:) => null() ! tracer initial snow water content (-nlevsno+1:0) (kg/m2)
+    real(r8), pointer :: wtr_qg_snow            (:,:)   => null() ! tracer specific humidity over snow (kg H2O/kg moist air)
+    real(r8), pointer :: wtr_qg_soil            (:,:)   => null() ! tracer specific humidity over soil (kg H2O/kg moist air)
+    real(r8), pointer :: wtr_qg_h2osfc          (:,:)   => null() ! tracer specific humidity over surface water (kg H2O/kg moist air)
+    real(r8), pointer :: wtr_qg                 (:,:)   => null() ! tracer average surface specific humidity (kg H2O/kg moist air)
+    real(r8), pointer :: wtr_h2osoi_liqice_10cm (:,:)   => null() ! tracer liquid water + ice in top 10cm of soil (kg/m2)
+    real(r8), pointer :: wtr_h2osno             (:,:)   => null() ! tracer snow mass (kg/m2)
+    real(r8), pointer :: wtr_h2osno_old         (:,:)   => null() ! tracer snow mass for previous time step (kg/m2)
+    real(r8), pointer :: wtr_h2osno_top         (:,:)   => null() ! tracer top-layer mass of snow  (kg/m2)
+    real(r8), pointer :: wtr_sno_liq_top        (:,:)   => null() ! tracer snow liquid water fraction, by mass, top layer (kg/kg)
+    real(r8), pointer :: wtr_snowice            (:,:)   => null() ! tracer total snow ice (kg/m2)
+    real(r8), pointer :: wtr_snowliq            (:,:)   => null() ! tracer total snow liquid water (kg/m2)
+    real(r8), pointer :: wtr_int_snow           (:,:)   => null() ! tracer integrated snowfall (kg/m2)
+    real(r8), pointer :: wtr_snow_depth         (:,:)   => null() ! tracer snow height of snow covered area (m)
+    real(r8), pointer :: wtr_snowdp             (:,:)   => null() ! tracer snow height averaged for area with and without snow cover(m)
+    real(r8), pointer :: wtr_h2osoi_tend_tsl_col(:,:)   => null() ! tracer col moisture tendency due to vertical movement at topmost layer (m3/m3/s)
+    real(r8), pointer :: wtr_begwb              (:,:)   => null() ! tracer water mass begining of the time step (kg/m2)
+    real(r8), pointer :: wtr_endwb              (:,:)   => null() ! tracer water mass end of the time step (kg/m2)
+    real(r8), pointer :: wtr_errh2o             (:,:)   => null() ! tracer water conservation error (kg/m2)
+    real(r8), pointer :: wtr_errh2osno          (:,:)   => null() ! tracer snow water conservation error(kg/m2)
+    real(r8), pointer :: wtr_h2osoi_liq_depth_intg(:,:) => null() ! tracer grid-level depth integrated liquid soil water
+    real(r8), pointer :: wtr_h2osoi_ice_depth_intg(:,:) => null() ! tracer grid-level depth integrated ice soil water
+    !------end water tracer vars------
 
   contains
     procedure, public :: Init    => col_ws_init
@@ -532,6 +569,87 @@ module ColumnDataType
     real(r8), pointer :: mflx_et              (:,:) => null() ! evapotranspiration sink from all soil coontrol volumes (kg H2O /s)
     real(r8), pointer :: mflx_drain           (:,:) => null() ! drainage from groundwater table (kg H2O /s)
     real(r8), pointer :: mflx_recharge        (:)   => null() ! recharge from soil column to unconfined aquifer (kg H2O /s)
+
+    !-----Huancui: water tracer variables-----
+    real(r8), pointer :: wtr_qflx_prec_grnd       (:,:)   => null() ! tracer water onto ground including canopy runoff [kg/(m2 s)]
+    real(r8), pointer :: wtr_qflx_rain_grnd       (:,:)   => null() ! tracer rain on ground after interception (mm H2O/s) [+]
+    real(r8), pointer :: wtr_qflx_snow_grnd       (:,:)   => null() ! tracer snow on ground after interception (mm H2O/s) [+]
+    real(r8), pointer :: wtr_qflx_sub_snow        (:,:)   => null() ! tracer sublimation rate from snow pack (mm H2O /s) [+]
+    real(r8), pointer :: wtr_qflx_sub_snow_vol    (:,:)   => null() !
+    real(r8), pointer :: wtr_qflx_evap_soi        (:,:)   => null() ! tracer soil evaporation (mm H2O/s) (+ = to atm)
+    real(r8), pointer :: wtr_qflx_evap_veg        (:,:)   => null() ! tracer vegetation evaporation (mm H2O/s) (+ = to atm)
+    real(r8), pointer :: wtr_qflx_evap_can        (:,:)   => null() ! tracer evaporation from leaves and stems (mm H2O/s) (+ = to atm)
+    real(r8), pointer :: wtr_qflx_evap_tot        (:,:)   => null() ! tracer col_wtr_qflx_evap_soi + col_wtr_qflx_evap_veg + wtr_qflx_tran_veg
+    real(r8), pointer :: wtr_qflx_evap_grnd       (:,:)   => null() ! tracer ground surface evaporation rate (mm H2O/s) [+]
+    real(r8), pointer :: wtr_qflx_snwcp_liq       (:,:)   => null() ! tracer excess rainfall due to snow capping (mm H2O /s)
+    real(r8), pointer :: wtr_qflx_snwcp_ice       (:,:)   => null() ! tracer excess snowfall due to snow capping (mm H2O /s)
+    real(r8), pointer :: wtr_qflx_tran_veg        (:,:)   => null() ! tracer vegetation transpiration (mm H2O/s) (+ = to atm)
+    real(r8), pointer :: wtr_qflx_dew_snow        (:,:)   => null() ! tracer surface dew added to snow pack (mm H2O /s) [+]
+    real(r8), pointer :: wtr_qflx_dew_grnd        (:,:)   => null() ! tracer ground surface dew formation (mm H2O /s) [+] (+ = to atm); usually eflx_bot >= 0)
+    real(r8), pointer :: wtr_qflx_prec_intr       (:,:)   => null() ! tracer interception of precipitation [mm/s]
+    real(r8), pointer :: wtr_qflx_dirct_rain      (:,:)   => null() ! tracer direct through rainfall [mm/s]
+    real(r8), pointer :: wtr_qflx_leafdrip        (:,:)   => null() ! tracer leaf rain drip [mm/s]
+    real(r8), pointer :: wtr_qflx_ev_snow         (:,:)   => null() ! tracer evaporation heat flux from snow         (W/m**2) [+ to atm] ! tracer NOTE: unit shall be mm H2O/s for water NOT heat
+    real(r8), pointer :: wtr_qflx_ev_soil         (:,:)   => null() ! tracer evaporation heat flux from soil         (W/m**2) [+ to atm] ! tracer NOTE: unit shall be mm H2O/s for water NOT heat
+    real(r8), pointer :: wtr_qflx_ev_h2osfc       (:,:)   => null() ! tracer evaporation heat flux from soil         (W/m**2) [+ to atm] ! tracer NOTE: unit shall be mm H2O/s for water NOT heat
+    real(r8), pointer :: wtr_qflx_gross_evap_soil (:,:)   => null() ! tracer gross infiltration from soil, this satisfies the relationship wtr_qflx_infl = wtr_qflx_gross_infl_soil-wtr_qflx_gross_evap_soil
+    real(r8), pointer :: wtr_qflx_gross_infl_soil (:,:)   => null() ! tracer gross infiltration, before considering the evaporation
+    real(r8), pointer :: wtr_qflx_adv             (:,:,:) => null() ! tracer advective flux across different soil layer interfaces [mm H2O/s] [+ downward]
+    real(r8), pointer :: wtr_qflx_rootsoi         (:,:,:) => null() ! tracer root and soil water exchange [mm H2O/s] [+ into root]
+    real(r8), pointer :: wtr_dwb                  (:,:)   => null() ! tracer  water mass change [+ increase] [mm H2O/s]
+    real(r8), pointer :: wtr_qflx_infl            (:,:)   => null() ! tracer infiltration (mm H2O /s)
+    real(r8), pointer :: wtr_qflx_surf            (:,:)   => null() ! tracer surface runoff (mm H2O /s)
+    real(r8), pointer :: wtr_qflx_drain           (:,:)   => null() ! tracer sub-surface runoff (mm H2O /s)
+    real(r8), pointer :: wtr_qflx_totdrain        (:,:)   => null()
+    real(r8), pointer :: wtr_qflx_top_soil        (:,:)   => null() ! tracer net water input into soil from top (mm/s)
+    real(r8), pointer :: wtr_qflx_h2osfc_to_ice   (:,:)   => null() ! tracer conversion of h2osfc to ice
+    real(r8), pointer :: wtr_qflx_h2osfc_surf     (:,:)   => null() ! tracer surface water runoff
+    real(r8), pointer :: wtr_qflx_snow_h2osfc     (:,:)   => null() ! tracer snow falling on surface water
+    real(r8), pointer :: wtr_qflx_drain_perched   (:,:)   => null() ! tracer sub-surface runoff from perched wt (mm H2O /s)
+    real(r8), pointer :: wtr_qflx_deficit         (:,:)   => null() ! tracer water deficit to keep non-negative liquid water content (mm H2O)
+    real(r8), pointer :: wtr_qflx_floodc          (:,:)   => null() ! tracer flood water flux at column level
+    real(r8), pointer :: wtr_qflx_sl_top_soil     (:,:)   => null() ! tracer liquid water + ice from layer above soil to top soil layer or sent to wtr_qflx_qrgwl (mm H2O/s)
+    real(r8), pointer :: wtr_qflx_snomelt         (:,:)   => null() ! tracer snow melt (mm H2O /s)
+    real(r8), pointer :: wtr_qflx_snow_melt       (:,:)   => null() ! tracer snow melt (net)
+    real(r8), pointer :: wtr_qflx_qrgwl           (:,:)   => null() ! tracer wtr_qflx_surf at glaciers, wetlands, lakes
+    real(r8), pointer :: wtr_qflx_runoff          (:,:)   => null() ! tracer total runoff (wtr_qflx_drain+wtr_qflx_surf+wtr_qflx_qrgwl) (mm H2O /s)
+    real(r8), pointer :: wtr_qflx_runoff_r        (:,:)   => null() ! tracer Rural total runoff (wtr_qflx_drain+wtr_qflx_surf+wtr_qflx_qrgwl) (mm H2O /s)
+    real(r8), pointer :: wtr_qflx_runoff_u        (:,:)   => null() ! tracer urban total runoff (wtr_qflx_drain+wtr_qflx_surf) (mm H2O /s)
+    real(r8), pointer :: wtr_qflx_rsub_sat        (:,:)   => null() ! tracer soil saturation excess [mm/s]
+    real(r8), pointer :: wtr_qflx_snofrz_lyr      (:,:,:) => null() ! tracer snow freezing rate (positive definite) (col,lyr) [kg m-2 s-1]
+    real(r8), pointer :: wtr_qflx_snofrz          (:,:)   => null() ! tracer column-integrated snow freezing rate (positive definite) (col) [kg m-2 s-1]
+    real(r8), pointer :: wtr_qflx_glcice          (:,:)   => null() ! tracer net flux of new glacial ice (growth - melt) (mm H2O/s), passed to GLC
+    real(r8), pointer :: wtr_qflx_glcice_frz      (:,:)   => null() ! tracer ice growth (positive definite) (mm H2O/s)
+    real(r8), pointer :: wtr_qflx_glcice_melt     (:,:)   => null() ! tracer ice melt (positive definite) (mm H2O/s)
+    real(r8), pointer :: wtr_qflx_drain_vr        (:,:,:) => null() ! tracer liquid water lost as drainage (m /time step)
+    real(r8), pointer :: wtr_qflx_h2osfc2topsoi   (:,:)   => null() ! tracer liquid water coming from surface standing water top soil (mm H2O/s)
+    real(r8), pointer :: wtr_qflx_snow2topsoi     (:,:)   => null() ! tracer liquid water coming from residual snow to topsoil (mm H2O/s)
+    real(r8), pointer :: wtr_qflx_lateral         (:,:)   => null() ! tracer lateral subsurface flux (mm H2O /s)
+    real(r8), pointer :: wtr_snow_sources         (:,:)   => null() ! tracer snow sources (mm H2O/s)
+    real(r8), pointer :: wtr_snow_sinks           (:,:)   => null() ! tracer snow sinks (mm H2O/s)
+    real(r8), pointer :: wtr_qflx_surf_irrig      (:,:)   => null() ! tracer col real surface irrigation flux (mm H2O/s)
+    real(r8), pointer :: wtr_qflx_grnd_irrig      (:,:)   => null() ! tracer col real groundwater irrigation flux (mm H2O/s)
+    real(r8), pointer :: wtr_qflx_irrig           (:,:)   => null() ! tracer col irrigation flux (mm H2O/s)
+    real(r8), pointer :: wtr_qflx_irr_demand      (:,:)   => null() ! tracer col surface irrigation demand (mm H2O /s)
+    real(r8), pointer :: wtr_qflx_over_supply     (:,:)   => null() ! tracer col over supplied irrigation
+    real(r8), pointer :: wtr_qflx_h2orof_drain    (:,:)   => null() ! tracer drainage from floodplain inundation volume (mm H2O/s))
+    real(r8), pointer :: wtr_mflx_infl_1d         (:,:)   => null() ! tracer infiltration source in top soil control volume (kg H2O /s)
+    real(r8), pointer :: wtr_mflx_dew_1d          (:,:)   => null() ! tracer liquid+snow dew source in top soil control volume (kg H2O /s)
+    real(r8), pointer :: wtr_mflx_et_1d           (:,:)   => null() ! tracer evapotranspiration sink from all soil coontrol volumes (kg H2O /s)
+    real(r8), pointer :: wtr_mflx_drain_1d        (:,:)   => null() ! tracer drainage from groundwater table (kg H2O /s)
+    real(r8), pointer :: wtr_mflx_drain_perched_1d(:,:)   => null() ! tracer drainage from perched water table (kg H2O /s)
+    real(r8), pointer :: wtr_mflx_snowlyr_1d      (:,:)   => null() ! tracer mass flux to top soil layer due to disappearance of snow (kg H2O /s)
+    real(r8), pointer :: wtr_mflx_sub_snow_1d     (:,:)   => null() ! tracer mass flux from top soil layer due to sublimation of snow (kg H2O /s)
+    real(r8), pointer :: wtr_mflx_neg_snow_1d     (:,:)   => null() ! tracer mass flux from top soil layer due to negative water content in snow layers (kg H2O /s)
+    real(r8), pointer :: wtr_mflx_snowlyr         (:,:)   => null() ! tracer mass flux to top soil layer due to disappearance of snow (kg H2O /s). This is for restart
+    real(r8), pointer :: wtr_mflx_infl            (:,:)   => null() ! tracer infiltration source in top soil control volume (kg H2O /s)
+    real(r8), pointer :: wtr_mflx_dew             (:,:)   => null() ! tracer liquid+snow dew source in top soil control volume (kg H2O /s)
+    real(r8), pointer :: wtr_mflx_snowlyr_disp    (:,:)   => null() ! tracer mass flux to top soil layer due to disappearance of snow (kg H2O /s)
+    real(r8), pointer :: wtr_mflx_sub_snow        (:,:)   => null() ! tracer mass flux from top soil layer due to sublimation of snow (kg H2O /s)
+    real(r8), pointer :: wtr_mflx_et              (:,:,:) => null() ! tracer evapotranspiration sink from all soil coontrol volumes (kg H2O /s)
+    real(r8), pointer :: wtr_mflx_drain           (:,:,:) => null() ! tracer drainage from groundwater table (kg H2O /s)
+    real(r8), pointer :: wtr_mflx_recharge        (:,:)   => null() ! tracer recharge from soil column to unconfined aquifer (kg H2O /s)
+    !-----------------------------------------
 
   contains
     procedure, public :: Init    => col_wf_init
@@ -1375,7 +1493,8 @@ contains
     real(r8), pointer  :: data2dptr(:,:), data1dptr(:) ! temp. pointers for slicing larger arrays
     real(r8)           :: snowbd      ! temporary calculation of snow bulk density (kg/m3)
     real(r8)           :: fmelt       ! snowbd/100
-    integer            :: c,l,j,nlevs,nlevbed, ncells
+    integer            :: c,l,j,nlevs,nlevbed, ncells, ilev_wtr
+    character(len=15)  :: wtr_vsuffix
     !------------------------------------------------------------------------
 
     !-----------------------------------------------------------------------
@@ -1441,6 +1560,46 @@ contains
     allocate(this%vsfm_soilp_col_1d  (ncells))                        ; this%vsfm_soilp_col_1d  (:)   = spval
     allocate(this%h2orof             (begc:endc))                     ; this%h2orof             (:)   = spval
     allocate(this%frac_h2orof        (begc:endc))                     ; this%frac_h2orof        (:)   = spval
+    
+    !-----Huancui: allocate water tracer variables-----
+    if (use_wtr) then
+       allocate(this%wtr_h2osoi_liq         (begc:endc,-nlevsno+1:nlevgrnd,1:nlevwtr)) ; this%wtr_h2osoi_liq         (:,:,:) = 0._r8
+       allocate(this%wtr_h2osoi_ice         (begc:endc,-nlevsno+1:nlevgrnd,1:nlevwtr)) ; this%wtr_h2osoi_ice         (:,:,:) = 0._r8
+       allocate(this%wtr_h2osoi_vol         (begc:endc, 1:nlevgrnd,1:nlevwtr))         ; this%wtr_h2osoi_vol         (:,:,:) = 0._r8
+       allocate(this%wtr_h2osfc             (begc:endc,1:nlevwtr))                     ; this%wtr_h2osfc             (:,:)   = 0._r8
+       allocate(this%wtr_h2ocan             (begc:endc,1:nlevwtr))                     ; this%wtr_h2ocan             (:,:)   = 0._r8
+       allocate(this%wtr_wslake_col         (begc:endc,1:nlevwtr))                     ; this%wtr_wslake_col         (:,:)   = 0._r8
+       allocate(this%wtr_total_plant_stored_h2o(begc:endc,1:nlevwtr))                  ; this%wtr_total_plant_stored_h2o(:,:)= 0._r8
+       allocate(this%wtr_h2osoi_liqvol      (begc:endc,-nlevsno+1:nlevgrnd,1:nlevwtr)) ; this%wtr_h2osoi_liqvol      (:,:,:) = 0._r8
+       allocate(this%wtr_h2osoi_icevol      (begc:endc,-nlevsno+1:nlevgrnd,1:nlevwtr)) ; this%wtr_h2osoi_icevol      (:,:,:) = 0._r8
+       allocate(this%wtr_h2osoi_liq_old     (begc:endc,-nlevsno+1:nlevgrnd,1:nlevwtr)) ; this%wtr_h2osoi_liq_old     (:,:,:) = 0._r8
+       allocate(this%wtr_h2osoi_ice_old     (begc:endc,-nlevsno+1:nlevgrnd,1:nlevwtr)) ; this%wtr_h2osoi_ice_old     (:,:,:) = 0._r8
+       allocate(this%wtr_swe_old            (begc:endc,-nlevsno+1:0,1:nlevwtr))        ; this%wtr_swe_old            (:,:,:) = 0._r8
+       allocate(this%wtr_qg_snow            (begc:endc,1:nlevwtr))                     ; this%wtr_qg_snow            (:,:)   = 0._r8
+       allocate(this%wtr_qg_soil            (begc:endc,1:nlevwtr))                     ; this%wtr_qg_soil            (:,:)   = 0._r8
+       allocate(this%wtr_qg_h2osfc          (begc:endc,1:nlevwtr))                     ; this%wtr_qg_h2osfc          (:,:)   = 0._r8
+       allocate(this%wtr_qg                 (begc:endc,1:nlevwtr))                     ; this%wtr_qg                 (:,:)   = 0._r8
+       allocate(this%wtr_h2osoi_liqice_10cm (begc:endc,1:nlevwtr))                     ; this%wtr_h2osoi_liqice_10cm (:,:)   = 0._r8
+       allocate(this%wtr_h2osno             (begc:endc,1:nlevwtr))                     ; this%wtr_h2osno             (:,:)   = 0._r8
+       allocate(this%wtr_h2osno_old         (begc:endc,1:nlevwtr))                     ; this%wtr_h2osno_old         (:,:)   = 0._r8
+       allocate(this%wtr_h2osno_top         (begc:endc,1:nlevwtr))                     ; this%wtr_h2osno_top         (:,:)   = 0._r8
+       allocate(this%wtr_sno_liq_top        (begc:endc,1:nlevwtr))                     ; this%wtr_sno_liq_top        (:,:)   = 0._r8
+       allocate(this%wtr_snowice            (begc:endc,1:nlevwtr))                     ; this%wtr_snowice            (:,:)   = 0._r8
+       allocate(this%wtr_snowliq            (begc:endc,1:nlevwtr))                     ; this%wtr_snowliq            (:,:)   = 0._r8
+       allocate(this%wtr_int_snow           (begc:endc,1:nlevwtr))                     ; this%wtr_int_snow           (:,:)   = 0._r8
+       allocate(this%wtr_snow_depth         (begc:endc,1:nlevwtr))                     ; this%wtr_snow_depth         (:,:)   = 0._r8
+       allocate(this%wtr_snowdp             (begc:endc,1:nlevwtr))                     ; this%wtr_snowdp             (:,:)   = 0._r8
+       allocate(this%wtr_begwb              (begc:endc,1:nlevwtr))                     ; this%wtr_begwb              (:,:)   = 0._r8
+       allocate(this%wtr_endwb              (begc:endc,1:nlevwtr))                     ; this%wtr_endwb              (:,:)   = 0._r8
+       allocate(this%wtr_errh2o             (begc:endc,1:nlevwtr))                     ; this%wtr_errh2o             (:,:)   = 0._r8
+       allocate(this%wtr_errh2osno          (begc:endc,1:nlevwtr))                     ; this%wtr_errh2osno          (:,:)   = 0._r8
+       allocate(this%wtr_h2osoi_liq_depth_intg(begc:endc,1:nlevwtr))                   ; this%wtr_h2osoi_liq_depth_intg(:,:) = 0._r8
+       allocate(this%wtr_h2osoi_ice_depth_intg(begc:endc,1:nlevwtr))                   ; this%wtr_h2osoi_ice_depth_intg(:,:) = 0._r8
+       if (use_fan) then
+          allocate(this%wtr_h2osoi_tend_tsl_col(begc:endc,1:nlevwtr))                  ; this%wtr_h2osoi_tend_tsl_col(:,:)   = 0._r8 
+       end if
+    end if
+    !-----end water tracer vars----
 
     !-----------------------------------------------------------------------
     ! initialize history fields for select members of col_ws
@@ -1613,12 +1772,296 @@ contains
          ptr_col=this%wslake_col)
     end if
 
+    !-----Huancui: water tracer vars-----
+    if (use_wtr) then
+       do ilev_wtr = 1,nlevwtr
+          data2dptr => this%wtr_h2osoi_liq(:,-nlevsno+1:0, ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld2d (fname='WTR_SNO_LIQH2O_'//trim(wtr_vsuffix), units='kg/m2', type2d='levsno',  &
+               avgflag='A', long_name='Snow liquid tracer water content species #'//trim(wtr_vsuffix), &
+               ptr_col=data2dptr, no_snow_behavior=no_snow_normal, default='inactive')
+       end do
+
+       do ilev_wtr = 1,nlevwtr
+          data2dptr => this%wtr_h2osoi_ice(:,-nlevsno+1:0, ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld2d (fname='WTR_SNO_ICE_'//trim(wtr_vsuffix), units='kg/m2', type2d='levsno',  &
+               avgflag='A', long_name='Snow tracer ice content species #'//trim(wtr_vsuffix), &
+               ptr_col=data2dptr, no_snow_behavior=no_snow_normal, default='inactive')
+       end do
+
+       this%wtr_h2osoi_liq(begc:endc,:,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data2dptr => this%wtr_h2osoi_liq(:,:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld2d (fname='WTR_SOILLIQ_'//trim(wtr_vsuffix),  units='kg/m2', type2d='levgrnd', &
+               avgflag='A', long_name='tracer soil liquid water (vegetated landunits only) species #'//trim(wtr_vsuffix), &
+               ptr_col=data2dptr, l2g_scale_type='veg')
+       end do
+
+       this%wtr_h2osoi_liq(begc:endc,:,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data2dptr => this%wtr_h2osoi_liq(:,:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld2d (fname='WTR_SOILLIQ_ICE_'//trim(wtr_vsuffix),  units='kg/m2', type2d='levgrnd', &
+               avgflag='A', long_name='tracer soil liquid water (ice landunits only) species #'//trim(wtr_vsuffix), &
+               ptr_col=data2dptr, l2g_scale_type='ice')
+       end do
+
+       this%wtr_h2osoi_ice(begc:endc,:,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data2dptr => this%wtr_h2osoi_ice(:,:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld2d (fname='WTR_SOILICE_'//trim(wtr_vsuffix),  units='kg/m2', type2d='levgrnd', &
+               avgflag='A', long_name='tracer soil ice (vegetated landunits only) species #'//trim(wtr_vsuffix), &
+               ptr_col=data2dptr, l2g_scale_type='veg')
+       end do
+
+       this%wtr_h2osoi_ice(begc:endc,:,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data2dptr => this%wtr_h2osoi_ice(:,:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld2d (fname='WTR_SOILICE_ICE_'//trim(wtr_vsuffix),  units='kg/m2', type2d='levgrnd', &
+               avgflag='A', long_name='tracer soil ice (ice landunits only) species #'//trim(wtr_vsuffix), &
+               ptr_col=data2dptr, l2g_scale_type='ice')
+       end do
+
+       this%wtr_h2osfc(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_h2osfc(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_H2OSFC_'//trim(wtr_vsuffix),  units='mm',  &
+               avgflag='A', long_name='tracer surface water depth species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr)
+       end do
+
+       this%wtr_h2osoi_vol(begc:endc,:,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data2dptr => this%wtr_h2osoi_vol(:,:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld2d (fname='WTR_H2OSOI_'//trim(wtr_vsuffix),  units='mm3/mm3', type2d='levgrnd', &
+            avgflag='A', long_name='volumetric tracer soil water (vegetated landunits only) species #'//trim(wtr_vsuffix), &
+             ptr_col=data2dptr, l2g_scale_type='veg')
+       end do
+
+       this%wtr_h2osoi_liqice_10cm(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_h2osoi_liqice_10cm(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_SOILWATER_10CM_'//trim(wtr_vsuffix),  units='kg/m2', &
+               avgflag='A', long_name='tracer soil liquid water + ice in top 10cm of soil (veg landunits only) species #'//trim(wtr_vsuffix), &
+               standard_name='mass_content_of_water_in_soil_layer',ptr_col=data1dptr,  &
+               l2g_scale_type='veg')!set_urb=spval, set_lake=spval, l2g_scale_type='veg')
+       end do
+
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_h2osno(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+           call hist_addfld1d (fname='WTR_H2OSNO_'//trim(wtr_vsuffix),  units='mm',  &
+                avgflag='A', long_name='tracer snow depth (liquid water) species #'//trim(wtr_vsuffix), &
+                ptr_col=data1dptr, c2l_scale_type='urbanf')
+       end do
+
+       this%wtr_sno_liq_top(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_sno_liq_top(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_SNOLIQFL_'//trim(wtr_vsuffix), units='fraction', &
+               avgflag='A', long_name='tracer top snow layer liquid water fraction (land) species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr,  default='inactive')! set_urb=spval, default='inactive')
+       end do
+
+       this%wtr_h2osno_top(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_h2osno_top(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_H2OSNO_TOP_'//trim(wtr_vsuffix), units='kg/m2', &
+               avgflag='A', long_name='tracer mass of snow in top snow layer species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr)! set_urb=spval)
+       end do
+
+       this%wtr_snowice(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_snowice(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_SNOWICE_'//trim(wtr_vsuffix),  units='kg/m2', &
+               avgflag='A', long_name='tracer snow ice species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr)
+       end do
+
+       this%wtr_snowliq(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_snowliq(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_SNOWLIQ_'//trim(wtr_vsuffix),  units='kg/m2',  &
+               avgflag='A', long_name='tracer snow liquid water species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr)
+       end do
+
+       this%wtr_int_snow(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_int_snow(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_INT_SNOW_'//trim(wtr_vsuffix),  units='mm',  &
+               avgflag='A', long_name='tracer accumulated swe (vegetated landunits only) species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr, l2g_scale_type='veg')
+       end do
+
+       this%wtr_snow_depth(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_snow_depth(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_SNOW_DEPTH_'//trim(wtr_vsuffix),  units='m',  &
+               avgflag='A', long_name='tracer snow height of snow covered area species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr, c2l_scale_type='urbanf')!, default='inactive')
+       end do
+
+       this%wtr_snowdp(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_snowdp(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_SNOWDP_'//trim(wtr_vsuffix),  units='m',  &
+               avgflag='A', long_name='tracer gridcell mean snow height species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr, c2l_scale_type='urbanf')
+       end do
+
+       if (use_fan) then
+          this%wtr_h2osoi_tend_tsl_col(begc:endc,:) = spval
+          do ilev_wtr = 1,nlevwtr
+             data1dptr => this%wtr_h2osoi_tend_tsl_col(:,ilev_wtr)
+             if (nlevwtr < 10) then
+               write(wtr_vsuffix, '(I1)') ilev_wtr
+             else
+               write(wtr_vsuffix, '(I2.2)') ilev_wtr
+             end if
+             call hist_addfld1d ( &
+                  fname='WTR_SOILWATERTEND_TSL_'//trim(wtr_vsuffix),  units='kg/m2/s', &
+                  avgflag='A', long_name='Tendency of tracer soil water in the topmost soil layer species #'//trim(wtr_vsuffix), &
+                  ptr_col=data1dptr, l2g_scale_type='veg', &
+                  default='inactive')
+          end do
+       end if
+
+       this%wtr_wslake_col(begc:endc,:) = spval
+       if (use_lake_wat_storage) then
+          do ilev_wtr = 1,nlevwtr
+             data1dptr => this%wtr_wslake_col(:,ilev_wtr)
+             if (nlevwtr < 10) then
+               write(wtr_vsuffix, '(I1)') ilev_wtr
+             else
+               write(wtr_vsuffix, '(I2.2)') ilev_wtr
+             end if
+             call hist_addfld1d(fname='WTR_WSLAKE_'//trim(wtr_vsuffix), units='mm', &
+                  avgflag='A', long_name='tracer lake water storage species #'//trim(wtr_vsuffix), &
+                  ptr_col=data1dptr)
+          end do
+       end if
+
+       this%wtr_errh2o(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_errh2o(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_ERRH2O_'//trim(wtr_vsuffix), units='mm',  &
+               avgflag='A', long_name='tracer water conservation error species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr)
+       end do
+
+       this%wtr_errh2osno(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_errh2osno(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_ERRH2OSNO_'//trim(wtr_vsuffix),  units='mm',  &
+               avgflag='A', long_name='imbalance in tracer snow depth (liquid water)'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr, c2l_scale_type='urbanf')
+       end do
+    end if
+    !-----end water tracer vars-----
+
     !-----------------------------------------------------------------------
     ! set cold-start initial values for select members of col_ws
     !-----------------------------------------------------------------------
 
     ! Arrays that are initialized from input arguments
     this%wslake_col(begc:endc) = 0._r8
+    if (use_wtr) then    !Huancui
+       this%wtr_wslake_col(begc:endc,1)         = this%wslake_col(begc:endc)
+    end if
 
     do c = begc,endc
        l = col_pp%landunit(c)
@@ -1635,6 +2078,14 @@ contains
        this%frac_h2osfc_act(c)        = 0._r8
        this%h2orof(c)                 = 0._r8
        this%frac_h2orof(c)            = 0._r8
+       if (use_wtr) then     !Huancui
+          this%wtr_h2osno(c,1)        = this%h2osno(c)
+          this%wtr_int_snow(c,1)      = this%int_snow(c)
+          this%wtr_snow_depth(c,1)    = this%snow_depth(c)
+          this%wtr_total_plant_stored_h2o(c,1)  = this%total_plant_stored_h2o(c)
+          this%wtr_h2osfc(c,1)                  = this%h2osfc(c)
+          this%wtr_h2ocan(c,1)                  = this%h2ocan(c)
+       end if
 
        if (lun_pp%urbpoi(l)) then
           ! From Bonan 1996 (LSM technical note)
@@ -1796,6 +2247,16 @@ contains
 
        this%h2osoi_liq_old(c,:) = this%h2osoi_liq(c,:)
        this%h2osoi_ice_old(c,:) = this%h2osoi_ice(c,:)
+       !-----Huancui: water vapor vars-----
+       if (use_wtr) then
+         this%wtr_h2osoi_liq(c,-nlevsno+1:nlevgrnd,1)   = this%h2osoi_liq(c,-nlevsno+1:nlevgrnd)
+         this%wtr_h2osoi_ice(c,-nlevsno+1:nlevgrnd,1)   = this%h2osoi_ice(c,-nlevsno+1:nlevgrnd)
+         this%wtr_h2osoi_vol(c,1:nlevgrnd,1)   = this%h2osoi_vol(c,1:nlevgrnd)
+         this%wtr_h2osoi_liq_old(c,:,:) = this%wtr_h2osoi_liq(c,:,:)
+         this%wtr_h2osoi_ice_old(c,:,:) = this%wtr_h2osoi_ice(c,:,:)
+       end if
+       !-----------------------------------
+
     end do
 
   end subroutine col_ws_init
@@ -5670,6 +6131,9 @@ contains
     ! !LOCAL VARIABLES:
     integer  :: l,c
     integer  :: ncells
+    integer             :: ilev_wtr
+    character(len=32)   :: wtr_vsuffix
+    real(r8), pointer   :: data1dptr(:) ! temp. pointers for slicing larger arrays
     !-----------------------------------------------------------------------
 
     !-----------------------------------------------------------------------
@@ -5758,6 +6222,89 @@ contains
     allocate(this%mflx_et                (begc:endc,1:nlevgrnd))  ; this%mflx_et              (:,:) = spval
     allocate(this%mflx_drain             (begc:endc,1:nlevgrnd))  ; this%mflx_drain           (:,:) = spval
     allocate(this%mflx_recharge          (begc:endc))             ; this%mflx_recharge        (:)   = spval
+
+    if (use_wtr) then    !Huancui
+       allocate(this%wtr_qflx_prec_grnd         (begc:endc,1:nlevwtr))             ; this%wtr_qflx_prec_grnd       (:,:)   = 0._r8
+       allocate(this%wtr_qflx_rain_grnd         (begc:endc,1:nlevwtr))             ; this%wtr_qflx_rain_grnd       (:,:)   = 0._r8
+       allocate(this%wtr_qflx_snow_grnd         (begc:endc,1:nlevwtr))             ; this%wtr_qflx_snow_grnd       (:,:)   = 0._r8
+       allocate(this%wtr_qflx_sub_snow          (begc:endc,1:nlevwtr))             ; this%wtr_qflx_sub_snow        (:,:)   = 0._r8
+       allocate(this%wtr_qflx_sub_snow_vol      (begc:endc,1:nlevwtr))             ; this%wtr_qflx_sub_snow_vol    (:,:)   = 0._r8
+       allocate(this%wtr_qflx_evap_soi          (begc:endc,1:nlevwtr))             ; this%wtr_qflx_evap_soi        (:,:)   = 0._r8
+       allocate(this%wtr_qflx_evap_veg          (begc:endc,1:nlevwtr))             ; this%wtr_qflx_evap_veg        (:,:)   = 0._r8
+       allocate(this%wtr_qflx_evap_can          (begc:endc,1:nlevwtr))             ; this%wtr_qflx_evap_can        (:,:)   = 0._r8
+       allocate(this%wtr_qflx_evap_tot          (begc:endc,1:nlevwtr))             ; this%wtr_qflx_evap_tot        (:,:)   = 0._r8
+       allocate(this%wtr_qflx_evap_grnd         (begc:endc,1:nlevwtr))             ; this%wtr_qflx_evap_grnd       (:,:)   = 0._r8
+       allocate(this%wtr_qflx_snwcp_liq         (begc:endc,1:nlevwtr))             ; this%wtr_qflx_snwcp_liq       (:,:)   = 0._r8
+       allocate(this%wtr_qflx_snwcp_ice         (begc:endc,1:nlevwtr))             ; this%wtr_qflx_snwcp_ice       (:,:)   = 0._r8
+       allocate(this%wtr_qflx_tran_veg          (begc:endc,1:nlevwtr))             ; this%wtr_qflx_tran_veg        (:,:)   = 0._r8
+       allocate(this%wtr_qflx_dew_snow          (begc:endc,1:nlevwtr))             ; this%wtr_qflx_dew_snow        (:,:)   = 0._r8
+       allocate(this%wtr_qflx_dew_grnd          (begc:endc,1:nlevwtr))             ; this%wtr_qflx_dew_grnd        (:,:)   = 0._r8
+       allocate(this%wtr_qflx_prec_intr         (begc:endc,1:nlevwtr))             ; this%wtr_qflx_prec_intr       (:,:)   = 0._r8
+       allocate(this%wtr_qflx_dirct_rain        (begc:endc,1:nlevwtr))             ; this%wtr_qflx_dirct_rain      (:,:)   = 0._r8
+       allocate(this%wtr_qflx_leafdrip          (begc:endc,1:nlevwtr))             ; this%wtr_qflx_leafdrip        (:,:)   = 0._r8
+       allocate(this%wtr_qflx_ev_snow           (begc:endc,1:nlevwtr))             ; this%wtr_qflx_ev_snow         (:,:)   = 0._r8
+       allocate(this%wtr_qflx_ev_soil           (begc:endc,1:nlevwtr))             ; this%wtr_qflx_ev_soil         (:,:)   = 0._r8
+       allocate(this%wtr_qflx_ev_h2osfc         (begc:endc,1:nlevwtr))             ; this%wtr_qflx_ev_h2osfc       (:,:)   = 0._r8
+       allocate(this%wtr_qflx_gross_evap_soil   (begc:endc,1:nlevwtr))             ; this%wtr_qflx_gross_evap_soil (:,:)   = 0._r8
+       allocate(this%wtr_qflx_gross_infl_soil   (begc:endc,1:nlevwtr))             ; this%wtr_qflx_gross_infl_soil (:,:)   = 0._r8
+       allocate(this%wtr_qflx_adv               (begc:endc,0:nlevgrnd,1:nlevwtr))  ; this%wtr_qflx_adv             (:,:,:) = 0._r8
+       allocate(this%wtr_qflx_rootsoi           (begc:endc,1:nlevgrnd,1:nlevwtr))  ; this%wtr_qflx_rootsoi         (:,:,:) = 0._r8
+       allocate(this%wtr_dwb                    (begc:endc,1:nlevwtr))             ; this%wtr_dwb                  (:,:)   = 0._r8
+       allocate(this%wtr_qflx_infl              (begc:endc,1:nlevwtr))             ; this%wtr_qflx_infl            (:,:)   = 0._r8
+       allocate(this%wtr_qflx_surf              (begc:endc,1:nlevwtr))             ; this%wtr_qflx_surf            (:,:)   = 0._r8
+       allocate(this%wtr_qflx_drain             (begc:endc,1:nlevwtr))             ; this%wtr_qflx_drain           (:,:)   = 0._r8
+       allocate(this%wtr_qflx_totdrain          (begc:endc,1:nlevwtr))             ; this%wtr_qflx_totdrain        (:,:)   = 0._r8
+       allocate(this%wtr_qflx_top_soil          (begc:endc,1:nlevwtr))             ; this%wtr_qflx_top_soil        (:,:)   = 0._r8
+       allocate(this%wtr_qflx_h2osfc_to_ice     (begc:endc,1:nlevwtr))             ; this%wtr_qflx_h2osfc_to_ice   (:,:)   = 0._r8
+       allocate(this%wtr_qflx_h2osfc_surf       (begc:endc,1:nlevwtr))             ; this%wtr_qflx_h2osfc_surf     (:,:)   = 0._r8
+       allocate(this%wtr_qflx_snow_h2osfc       (begc:endc,1:nlevwtr))             ; this%wtr_qflx_snow_h2osfc     (:,:)   = 0._r8
+       allocate(this%wtr_qflx_drain_perched     (begc:endc,1:nlevwtr))             ; this%wtr_qflx_drain_perched   (:,:)   = 0._r8
+       allocate(this%wtr_qflx_deficit           (begc:endc,1:nlevwtr))             ; this%wtr_qflx_deficit         (:,:)   = 0._r8
+       allocate(this%wtr_qflx_floodc            (begc:endc,1:nlevwtr))             ; this%wtr_qflx_floodc          (:,:)   = 0._r8
+       allocate(this%wtr_qflx_sl_top_soil       (begc:endc,1:nlevwtr))             ; this%wtr_qflx_sl_top_soil     (:,:)   = 0._r8
+       allocate(this%wtr_qflx_snomelt           (begc:endc,1:nlevwtr))             ; this%wtr_qflx_snomelt         (:,:)   = 0._r8
+       allocate(this%wtr_qflx_snow_melt         (begc:endc,1:nlevwtr))             ; this%wtr_qflx_snow_melt       (:,:)   = 0._r8
+       allocate(this%wtr_qflx_qrgwl             (begc:endc,1:nlevwtr))             ; this%wtr_qflx_qrgwl           (:,:)   = 0._r8
+       allocate(this%wtr_qflx_runoff            (begc:endc,1:nlevwtr))             ; this%wtr_qflx_runoff          (:,:)   = 0._r8
+       allocate(this%wtr_qflx_runoff_r          (begc:endc,1:nlevwtr))             ; this%wtr_qflx_runoff_r        (:,:)   = 0._r8
+       allocate(this%wtr_qflx_runoff_u          (begc:endc,1:nlevwtr))             ; this%wtr_qflx_runoff_u        (:,:)   = 0._r8
+       allocate(this%wtr_qflx_rsub_sat          (begc:endc,1:nlevwtr))             ; this%wtr_qflx_rsub_sat        (:,:)   = 0._r8
+       allocate(this%wtr_qflx_snofrz_lyr        (begc:endc,-nlevsno+1:0,1:nlevwtr)); this%wtr_qflx_snofrz_lyr      (:,:,:) = 0._r8
+       allocate(this%wtr_qflx_snofrz            (begc:endc,1:nlevwtr))             ; this%wtr_qflx_snofrz          (:,:)   = 0._r8
+       allocate(this%wtr_qflx_glcice            (begc:endc,1:nlevwtr))             ; this%wtr_qflx_glcice          (:,:)   = 0._r8
+       allocate(this%wtr_qflx_glcice_frz        (begc:endc,1:nlevwtr))             ; this%wtr_qflx_glcice_frz      (:,:)   = 0._r8
+       allocate(this%wtr_qflx_glcice_melt       (begc:endc,1:nlevwtr))             ; this%wtr_qflx_glcice_melt     (:,:)   = 0._r8
+       allocate(this%wtr_qflx_drain_vr          (begc:endc,1:nlevgrnd,1:nlevwtr))  ; this%wtr_qflx_drain_vr        (:,:,:) = 0._r8
+       allocate(this%wtr_qflx_h2osfc2topsoi     (begc:endc,1:nlevwtr))             ; this%wtr_qflx_h2osfc2topsoi   (:,:)   = 0._r8
+       allocate(this%wtr_qflx_snow2topsoi       (begc:endc,1:nlevwtr))             ; this%wtr_qflx_snow2topsoi     (:,:)   = 0._r8
+       allocate(this%wtr_qflx_lateral           (begc:endc,1:nlevwtr))             ; this%wtr_qflx_lateral         (:,:)   = 0._r8
+       allocate(this%wtr_snow_sources           (begc:endc,1:nlevwtr))             ; this%wtr_snow_sources         (:,:)   = 0._r8
+       allocate(this%wtr_snow_sinks             (begc:endc,1:nlevwtr))             ; this%wtr_snow_sinks           (:,:)   = 0._r8
+       allocate(this%wtr_qflx_irrig             (begc:endc,1:nlevwtr))             ; this%wtr_qflx_irrig           (:,:)   = 0._r8
+       allocate(this%wtr_qflx_surf_irrig        (begc:endc,1:nlevwtr))             ; this%wtr_qflx_surf_irrig      (:,:)   = 0._r8
+       allocate(this%wtr_qflx_grnd_irrig        (begc:endc,1:nlevwtr))             ; this%wtr_qflx_grnd_irrig      (:,:)   = 0._r8
+       allocate(this%wtr_qflx_over_supply       (begc:endc,1:nlevwtr))             ; this%wtr_qflx_over_supply     (:,:)   = 0._r8
+       allocate(this%wtr_qflx_irr_demand        (begc:endc,1:nlevwtr))             ; this%wtr_qflx_irr_demand      (:,:)   = 0._r8
+       allocate(this%wtr_qflx_h2orof_drain      (begc:endc,1:nlevwtr))             ; this%wtr_qflx_h2orof_drain    (:,:)   = 0._r8
+       ncells = endc - begc + 1
+       allocate(this%wtr_mflx_infl_1d           (ncells,1:nlevwtr))                ; this%wtr_mflx_infl_1d         (:,:)   = 0._r8
+       allocate(this%wtr_mflx_dew_1d            (ncells,1:nlevwtr))                ; this%wtr_mflx_dew_1d          (:,:)   = 0._r8
+       allocate(this%wtr_mflx_snowlyr_1d        (ncells,1:nlevwtr))                ; this%wtr_mflx_snowlyr_1d      (:,:)   = 0._r8
+       allocate(this%wtr_mflx_sub_snow_1d       (ncells,1:nlevwtr))                ; this%wtr_mflx_sub_snow_1d     (:,:)   = 0._r8
+       allocate(this%wtr_mflx_neg_snow_1d       (ncells,1:nlevwtr))                ; this%wtr_mflx_neg_snow_1d     (:,:)   = 0._r8
+       ncells = (endc - begc + 1)*nlevgrnd
+       allocate(this%wtr_mflx_et_1d             (ncells,1:nlevwtr))                ; this%wtr_mflx_et_1d           (:,:)   = 0._r8
+       allocate(this%wtr_mflx_drain_1d          (ncells,1:nlevwtr))                ; this%wtr_mflx_drain_1d        (:,:)   = 0._r8
+       allocate(this%wtr_mflx_drain_perched_1d  (ncells,1:nlevwtr))                ; this%wtr_mflx_drain_perched_1d(:,:)   = 0._r8
+       allocate(this%wtr_mflx_snowlyr           (begc:endc,1:nlevwtr))             ; this%wtr_mflx_snowlyr         (:,:)   = 0._r8
+       allocate(this%wtr_mflx_infl              (begc:endc,1:nlevwtr))             ; this%wtr_mflx_infl            (:,:)   = 0._r8
+       allocate(this%wtr_mflx_dew               (begc:endc,1:nlevwtr))             ; this%wtr_mflx_dew             (:,:)   = 0._r8
+       allocate(this%wtr_mflx_snowlyr_disp      (begc:endc,1:nlevwtr))             ; this%wtr_mflx_snowlyr_disp    (:,:)   = 0._r8
+       allocate(this%wtr_mflx_sub_snow          (begc:endc,1:nlevwtr))             ; this%wtr_mflx_sub_snow        (:,:)   = 0._r8
+       allocate(this%wtr_mflx_et                (begc:endc,1:nlevgrnd,1:nlevwtr))  ; this%wtr_mflx_et              (:,:,:) = 0._r8
+       allocate(this%wtr_mflx_drain             (begc:endc,1:nlevgrnd,1:nlevwtr))  ; this%wtr_mflx_drain           (:,:,:) = 0._r8
+       allocate(this%wtr_mflx_recharge          (begc:endc,1:nlevwtr))             ; this%wtr_mflx_recharge        (:,:)   = 0._r8
+    end if
 
     !-----------------------------------------------------------------------
     ! initialize history fields for select members of col_wf
@@ -5875,6 +6422,285 @@ contains
           avgflag='A', long_name='snow sinks (liquid water)', &
            ptr_col=this%snow_sinks, c2l_scale_type='urbanf')
 
+    if (use_wtr) then
+       this%wtr_qflx_snwcp_ice(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_snwcp_ice(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QSNWCPICE_NODYNLNDUSE_'//trim(wtr_vsuffix), units='mm H2O/s', &
+               avgflag='A', long_name='tracer excess snowfall due to snow capping not including correction for land use change species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr, c2l_scale_type='urbanf')
+       end do
+
+       this%wtr_dwb(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_dwb(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_DWB_'//trim(wtr_vsuffix),     units='mm/s',     &
+               avgflag='A', long_name='net change in tracer water mass species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr, c2l_scale_type='urbanf')
+       end do
+
+       this%wtr_qflx_infl(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_infl(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QINFL_'//trim(wtr_vsuffix),     units='mm/s',     &
+               avgflag='A', long_name='tracer infiltration species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr, c2l_scale_type='urbanf')
+       end do
+
+       this%wtr_qflx_surf(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_surf(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QOVER_'//trim(wtr_vsuffix),     units='mm/s',     &
+               avgflag='A', long_name='tracer surface runoff species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr, c2l_scale_type='urbanf')
+       end do
+
+       this%wtr_qflx_drain(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_drain(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QDRAI_'//trim(wtr_vsuffix),     units='mm/s',     &
+               avgflag='A', long_name='tracer sub-surface drainage species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr, c2l_scale_type='urbanf')
+       end do
+
+       this%wtr_qflx_irr_demand(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_irr_demand(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QIRRIG_WM_'//trim(wtr_vsuffix),     units='mm/s',     &
+                     avgflag='A', long_name='tracer Surface water irrigation demand sent to MOSART/WM species #'//trim(wtr_vsuffix), &
+                     ptr_col=data1dptr, c2l_scale_type='urbanf')
+       end do
+
+       this%wtr_qflx_top_soil(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_top_soil(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QTOPSOIL_'//trim(wtr_vsuffix),     units='mm/s',     &
+               avgflag='A', long_name='tracer water input to surface species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr, c2l_scale_type='urbanf', default='inactive')
+       end do
+
+       this%wtr_qflx_h2osfc_surf(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_h2osfc_surf(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QH2OSFC_'//trim(wtr_vsuffix),     units='mm/s',     &
+               avgflag='A', long_name='tracer surface water runoff species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr)
+       end do
+
+       this%wtr_qflx_drain_perched(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_drain_perched(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QDRAI_PERCH_'//trim(wtr_vsuffix),     units='mm/s',     &
+               avgflag='A', long_name='tracer perched wt drainage species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr, c2l_scale_type='urbanf')
+       end do
+
+       this%wtr_qflx_snow_melt(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_snow_melt(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QSNOMELT_'//trim(wtr_vsuffix),     units='mm/s',     &
+               avgflag='A', long_name='tracer snow melt species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr, c2l_scale_type='urbanf')
+       end do
+
+       this%wtr_qflx_qrgwl(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_qrgwl(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QRGWL_'//trim(wtr_vsuffix),     units='mm/s',     &
+               avgflag='A', long_name='tracer surface runoff at glaciers (liquid only), wetlands, lakes species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr, c2l_scale_type='urbanf')
+       end do
+
+       this%wtr_qflx_runoff(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_runoff(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QRUNOFF_NODYNLNDUSE_'//trim(wtr_vsuffix),     units='mm/s',     &
+               avgflag='A', &
+               long_name='tracer liquid runoff (does not include QSNWCPICE) not including correction for land use change species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr, c2l_scale_type='urbanf')
+       end do
+
+       this%wtr_qflx_runoff_r(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_runoff_r(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QRUNOFF_R_'//trim(wtr_vsuffix), units='mm/s',     &
+               avgflag='A', long_name='Rural tracer runoff species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr, set_spec=spval)
+       end do
+
+       this%wtr_qflx_runoff_u(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_runoff_u(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QRUNOFF_U_'//trim(wtr_vsuffix), units='mm/s',     &
+               avgflag='A', long_name='Urban tracer runoff species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr, set_nourb=spval, c2l_scale_type='urbanf')
+       end do
+
+       this%wtr_qflx_rsub_sat(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_rsub_sat(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QDRAI_XS_'//trim(wtr_vsuffix),     units='mm/s',     &
+               avgflag='A', long_name='tracer saturation excess drainage species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr, c2l_scale_type='urbanf')
+       end do
+
+       this%wtr_qflx_snofrz(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_snofrz(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QSNOFRZ_'//trim(wtr_vsuffix), units='kg/m2/s', &
+               avgflag='A', long_name='tracer column-integrated snow freezing rate species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr, set_lake=spval, c2l_scale_type='urbanf', default='inactive')
+       end do
+
+       if (create_glacier_mec_landunit) then
+          this%wtr_qflx_glcice(begc:endc,:) = spval
+          do ilev_wtr = 1,nlevwtr
+             data1dptr => this%wtr_qflx_glcice(:,ilev_wtr)
+             if (nlevwtr < 10) then
+               write(wtr_vsuffix, '(I1)') ilev_wtr
+             else
+               write(wtr_vsuffix, '(I2.2)') ilev_wtr
+             end if
+             call hist_addfld1d (fname='WTR_QICE_'//trim(wtr_vsuffix),     units='mm/s',     &
+                  avgflag='A', long_name='tracer ice growth/melt species #'//trim(wtr_vsuffix), &
+                  ptr_col=data1dptr, l2g_scale_type='ice')
+          end do
+
+          this%wtr_qflx_glcice_frz(begc:endc,:) = spval
+          do ilev_wtr = 1,nlevwtr
+              data1dptr => this%wtr_qflx_glcice_frz(:,ilev_wtr)
+              if (nlevwtr < 10) then
+                 write(wtr_vsuffix, '(I1)') ilev_wtr
+              else
+                 write(wtr_vsuffix, '(I2.2)') ilev_wtr
+              end if
+              call hist_addfld1d (fname='WTR_QICE_FRZ_'//trim(wtr_vsuffix),     units='mm/s',     &
+                   avgflag='A', long_name='tracer ice growth species #'//trim(wtr_vsuffix), &
+                   ptr_col=data1dptr, l2g_scale_type='ice')
+          end do
+
+          this%wtr_qflx_glcice_melt(begc:endc,:) = spval
+          do ilev_wtr = 1,nlevwtr
+             data1dptr => this%wtr_qflx_glcice_melt(:,ilev_wtr)
+             if (nlevwtr < 10) then
+               write(wtr_vsuffix, '(I1)') ilev_wtr
+             else
+               write(wtr_vsuffix, '(I2.2)') ilev_wtr
+             end if
+             call hist_addfld1d (fname='WTR_QICE_MELT_'//trim(wtr_vsuffix),     units='mm/s',     &
+                  avgflag='A', long_name='tracer ice melt species #'//trim(wtr_vsuffix), &
+                  ptr_col=data1dptr, l2g_scale_type='ice')
+          end do
+       endif
+
+       this%wtr_snow_sources(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_snow_sources(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_SNOW_SOURCES_'//trim(wtr_vsuffix),     units='mm/s',     &
+               avgflag='A', long_name='tracer snow sources (liquid water) species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr, c2l_scale_type='urbanf')
+       end do
+
+       this%wtr_snow_sinks(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_snow_sinks(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_SNOW_SINKS_'//trim(wtr_vsuffix),     units='mm/s',     &
+               avgflag='A', long_name='tracer snow sinks (liquid water) species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr, c2l_scale_type='urbanf')
+       end do
+
+    end if
+
     !-----------------------------------------------------------------------
     ! set cold-start initial values for select members of col_wf
     !-----------------------------------------------------------------------
@@ -5890,12 +6716,42 @@ contains
     this%qflx_grnd_irrig(begc:endc) = 0._r8
     this%qflx_over_supply(begc:endc) = 0._r8
     this%qflx_h2orof_drain(begc:endc)= 0._r8
+ 
+    if (use_wtr) then     !Huancui
+       this%wtr_qflx_evap_grnd(begc:endc,:)    = 0._r8
+       this%wtr_qflx_dew_grnd (begc:endc,:)    = 0._r8
+       this%wtr_qflx_dew_snow (begc:endc,:)    = 0._r8
+       this%wtr_qflx_h2osfc_surf(begc:endc,:)  = 0._r8
+       this%wtr_qflx_snow_melt  (begc:endc,:)  = 0._r8
+       this%wtr_dwb(begc:endc,:)               = 0._r8
+       this%wtr_qflx_surf_irrig(begc:endc,:)   = 0._r8
+       this%wtr_qflx_grnd_irrig(begc:endc,:)   = 0._r8
+       this%wtr_qflx_over_supply(begc:endc,:)  = 0._r8
+       this%wtr_qflx_h2orof_drain(begc:endc,:) = 0._r8
+       this%wtr_qflx_evap_grnd(begc:endc,1)    = this%qflx_evap_grnd(begc:endc)
+       this%wtr_qflx_dew_grnd (begc:endc,1)    = this%qflx_dew_grnd (begc:endc)
+       this%wtr_qflx_dew_snow (begc:endc,1)    = this%qflx_dew_snow (begc:endc)
+       this%wtr_qflx_h2osfc_surf(begc:endc,1)  = this%qflx_h2osfc_surf(begc:endc)
+       this%wtr_qflx_snow_melt  (begc:endc,1)  = this%qflx_snow_melt  (begc:endc)
+       this%wtr_dwb(begc:endc,1)               = this%dwb(begc:endc)
+       this%wtr_qflx_surf_irrig(begc:endc,1)   = this%qflx_surf_irrig(begc:endc)
+       this%wtr_qflx_grnd_irrig(begc:endc,1)   = this%qflx_grnd_irrig(begc:endc)
+       this%wtr_qflx_over_supply(begc:endc,1)  = this%qflx_over_supply(begc:endc)
+       this%wtr_qflx_h2orof_drain(begc:endc,1) = this%qflx_h2orof_drain(begc:endc)
+    end if
+
     ! needed for CNNLeaching
     do c = begc, endc
        l = col_pp%landunit(c)
        if (lun_pp%itype(l) == istsoil .or. lun_pp%itype(l) == istcrop) then
           this%qflx_drain(c) = 0._r8
           this%qflx_surf(c)  = 0._r8
+          if (use_wtr) then     !Huancui
+             this%wtr_qflx_drain(c,:)  = 0._r8
+             this%wtr_qflx_surf(c,:)   = 0._r8
+             this%wtr_qflx_drain(c,1)  = this%qflx_drain(c)
+             this%wtr_qflx_surf(c,1)   = this%qflx_surf(c)
+          end if
        end if
     end do
 
@@ -5964,6 +6820,10 @@ contains
       c = filter(fc)
       this%qflx_snow2topsoi     (c)   = 0._r8
       this%qflx_h2osfc2topsoi   (c)   = 0._r8
+      if (use_wtr) then     !Huancui
+         this%wtr_qflx_snow2topsoi     (c,1:nlevwtr)   = 0._r8
+         this%wtr_qflx_h2osfc2topsoi   (c,1:nlevwtr)   = 0._r8
+      end if
     enddo
 
   end subroutine col_wf_reset

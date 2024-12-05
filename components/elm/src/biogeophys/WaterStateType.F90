@@ -15,7 +15,8 @@ module WaterstateType
   use elm_varpar     , only : nlevgrnd, nlevurb, nlevsno 
   use elm_varcon     , only : spval
   use LandunitType   , only : lun_pp                
-  use ColumnType     , only : col_pp                
+  use ColumnType     , only : col_pp
+  use elm_varctl     , only : use_wtr, nlevwtr  
   !
   implicit none
   save
@@ -130,6 +131,66 @@ module WaterstateType
      real(r8), pointer :: vsfm_smpl_col_1d       (:)   ! 1D soil matrix potential liquid from VSFM [m]
      real(r8), pointer :: vsfm_soilp_col_1d      (:)   ! 1D soil liquid pressure from VSFM [Pa]
      real(r8), pointer :: soilp_col              (:,:) ! col soil pressure (Pa)
+
+     !------Huancui: water tracer variables------
+     real(r8), pointer :: wtr_snow_depth_col     (:,:) ! tracer col snow height of snow covered area (m)
+     real(r8), pointer :: wtr_snowdp_col         (:,:) ! tracer col gridcell averaged snow height (m)
+     real(r8), pointer :: wtr_snowice_col        (:,:) ! tracer col average snow ice lens
+     real(r8), pointer :: wtr_snowliq_col        (:,:) ! tracer col average snow liquid water
+     real(r8), pointer :: wtr_int_snow_col       (:,:) ! tracer col integrated snowfall (mm H2O)
+     real(r8), pointer :: wtr_h2osoi_tend_tsl_col(:,:) ! tracer col moisture tendency due to vertical movement at topmost layer (m3/m3/s)
+     real(r8), pointer :: wtr_h2osno_col             (:,:)   ! tracer col snow water (mm H2O)
+     real(r8), pointer :: wtr_h2osno_old_col         (:,:)   ! tracer col snow mass for previous time step (kg/m2) (new)
+     real(r8), pointer :: wtr_h2osoi_liq_col         (:,:,:) ! tracer col liquid water (kg/m2) (new) (-nlevsno+1:nlevgrnd)    
+     real(r8), pointer :: wtr_h2osoi_ice_col         (:,:,:) ! tracer col ice lens (kg/m2) (new) (-nlevsno+1:nlevgrnd)    
+     real(r8), pointer :: wtr_h2osoi_liq_old_col     (:,:,:) ! tracer 
+     real(r8), pointer :: wtr_h2osoi_ice_old_col     (:,:,:) ! tracer 
+     real(r8), pointer :: wtr_h2osoi_liqice_10cm_col (:,:)   ! tracer col liquid water + ice lens in top 10cm of soil (kg/m2)
+     real(r8), pointer :: wtr_h2osoi_vol_col         (:,:,:) ! tracer col volumetric soil water (0<=h2osoi_vol<=watsat) [m3/m3]  (nlevgrnd)
+     real(r8), pointer :: wtr_h2osoi_liqvol_col      (:,:,:) ! tracer col volumetric liquid water content (v/v)
+     real(r8), pointer :: wtr_h2osoi_icevol_col      (:,:,:) ! tracer col volumetric ice content (v/v)     
+     real(r8), pointer :: wtr_h2ocan_patch           (:,:)   ! tracer patch canopy water (mm H2O)
+     real(r8), pointer :: wtr_h2ocan_col             (:,:)   ! tracer col canopy water (mm H2O)
+     real(r8), pointer :: wtr_h2osfc_col             (:,:)   ! tracer col surface water (mm H2O)
+     real(r8), pointer :: wtr_swe_old_col            (:,:,:) ! tracer col initial snow water
+     real(r8), pointer :: wtr_liq1_grc               (:,:)   ! tracer grc initial gridcell total h2o liq content
+     real(r8), pointer :: wtr_liq2_grc               (:,:)   ! tracer grc post land cover change total liq content
+     real(r8), pointer :: wtr_ice1_grc               (:,:)   ! tracer grc initial gridcell total h2o ice content
+     real(r8), pointer :: wtr_ice2_grc               (:,:)   ! tracer grc post land cover change total ice content
+     real(r8), pointer :: wtr_tws_grc                (:,:)   ! tracer grc total water storage (mm H2O)
+     real(r8), pointer :: wtr_tws_month_beg_grc      (:,:)   ! tracer grc total water storage at the beginning of a month
+     real(r8), pointer :: wtr_tws_month_end_grc      (:,:)   ! tracer grc total water storage at the end of a month
+     real(r8), pointer :: wtr_total_plant_stored_h2o_col(:,:) ! tracer col water that is bound in plants
+     real(r8), pointer :: wtr_h2osno_top_col         (:,:)   ! tracer col top-layer mass of snow  [kg]
+     real(r8), pointer :: wtr_sno_liq_top_col        (:,:)   ! tracer col snow liquid water fraction (mass), top layer  [fraction]
+     real(r8), pointer :: wtr_q_ref2m_patch          (:,:)   ! tracer patch 2 m height surface specific humidity (kg/kg)
+     real(r8), pointer :: wtr_qg_snow_col            (:,:)   ! tracer col ground specific humidity [kg/kg]
+     real(r8), pointer :: wtr_qg_soil_col            (:,:)   ! tracer col ground specific humidity [kg/kg]
+     real(r8), pointer :: wtr_qg_h2osfc_col          (:,:)   ! tracer col ground specific humidity [kg/kg]
+     real(r8), pointer :: wtr_qg_col                 (:,:)   ! tracer col ground specific humidity [kg/kg]
+     real(r8), pointer :: wtr_begwb_patch            (:,:)   ! tracer water mass begining of the time step
+     real(r8), pointer :: wtr_begwb_col              (:,:)   ! tracer water mass begining of the time step
+     real(r8), pointer :: wtr_begwb_grc              (:,:)   ! tracer water mass begining of the time step
+     real(r8), pointer :: wtr_endwb_patch            (:,:)   ! tracer water mass end of the time step
+     real(r8), pointer :: wtr_endwb_col              (:,:)   ! tracer water mass end of the time step
+     real(r8), pointer :: wtr_endwb_grc              (:,:)   ! tracer water mass end of the time step
+     real(r8), pointer :: wtr_errh2o_patch           (:,:)   ! tracer water conservation error (mm H2O)
+     real(r8), pointer :: wtr_errh2o_col             (:,:)   ! tracer water conservation error (mm H2O)
+     real(r8), pointer :: wtr_errh2o_grc             (:,:)   ! tracer water conservation error (mm H2O)
+     real(r8), pointer :: wtr_errh2osno_col          (:,:)   ! tracer snow water conservation error(mm H2O)
+     real(r8), pointer :: wtr_h2osoi_liq_depth_intg_col(:,:) ! tracer grid-level depth integrated liquid soil water
+     real(r8), pointer :: wtr_h2osoi_ice_depth_intg_col(:,:) ! tracer grid-level depth integrated ice soil water
+     real(r8), pointer :: wtr_beg_h2ocan_grc         (:,:)   ! tracer grid-level canopy water at begining of the time step (mm H2O)
+     real(r8), pointer :: wtr_beg_h2osno_grc         (:,:)   ! tracer grid-level snow water at begining of the time step (mm H2O)
+     real(r8), pointer :: wtr_beg_h2osfc_grc         (:,:)   ! tracer grid-level surface water at begining of the time step (mm H2O)
+     real(r8), pointer :: wtr_beg_h2osoi_liq_grc     (:,:)   ! tracer grid-level liquid water at begining of the time step (kg/m2)
+     real(r8), pointer :: wtr_beg_h2osoi_ice_grc     (:,:)   ! tracer grid-level ice lens at begining of the time step (kg/m2)
+     real(r8), pointer :: wtr_end_h2ocan_grc         (:,:)   ! tracer grid-level canopy water at end of the time step (mm H2O)
+     real(r8), pointer :: wtr_end_h2osno_grc         (:,:)   ! tracer grid-level snow water at end of the time step (mm H2O)
+     real(r8), pointer :: wtr_end_h2osfc_grc         (:,:)   ! tracer grid-level surface water at end of the time step (mm H2O)
+     real(r8), pointer :: wtr_end_h2osoi_liq_grc     (:,:)   ! tracer grid-level liquid water at end of the time step (kg/m2)
+     real(r8), pointer :: wtr_end_h2osoi_ice_grc     (:,:)   ! tracer grid-level ice lens at end of the time step (kg/m2)
+     !------end water tracer vars----------------
 
    contains
 
@@ -300,6 +361,70 @@ contains
     allocate(this%vsfm_soilp_col_1d(         ncells))                     ; this%vsfm_soilp_col_1d      (:)   = nan
     allocate(this%soilp_col              (begc:endc,1:nlevgrnd))          ; this%soilp_col              (:,:) = 0._r8
 
+    !-----Huancui: allocate water tracer variables-------
+    if (use_wtr) then
+       allocate(this%wtr_snow_depth_col         (begc:endc,1:nlevwtr))    ; this%wtr_snow_depth_col         (:,:)   = nan
+       allocate(this%wtr_snowdp_col             (begc:endc,1:nlevwtr))    ; this%wtr_snowdp_col             (:,:)   = nan
+       allocate(this%wtr_snowice_col            (begc:endc,1:nlevwtr))    ; this%wtr_snowice_col            (:,:)   = nan
+       allocate(this%wtr_snowliq_col            (begc:endc,1:nlevwtr))    ; this%wtr_snowliq_col            (:,:)   = nan
+       allocate(this%wtr_int_snow_col           (begc:endc,1:nlevwtr))    ; this%wtr_int_snow_col           (:,:)   = nan
+       allocate(this%wtr_h2osno_col             (begc:endc,1:nlevwtr))    ; this%wtr_h2osno_col             (:,:)   = nan
+       allocate(this%wtr_h2osno_old_col         (begc:endc,1:nlevwtr))    ; this%wtr_h2osno_old_col         (:,:)   = nan
+       allocate(this%wtr_h2osoi_liqice_10cm_col (begc:endc,1:nlevwtr))    ; this%wtr_h2osoi_liqice_10cm_col (:,:)   = nan
+       allocate(this%wtr_h2osoi_vol_col         (begc:endc,1:nlevgrnd,1:nlevwtr))         ; this%wtr_h2osoi_vol_col         (:,:,:) = nan
+       allocate(this%wtr_h2osoi_liqvol_col      (begc:endc,-nlevsno+1:nlevgrnd,1:nlevwtr)) ; this%wtr_h2osoi_liqvol_col      (:,:,:) = nan
+       allocate(this%wtr_h2osoi_icevol_col      (begc:endc,-nlevsno+1:nlevgrnd,1:nlevwtr)) ; this%wtr_h2osoi_icevol_col      (:,:,:) = nan
+       allocate(this%wtr_h2osoi_liq_old_col     (begc:endc,-nlevsno+1:nlevgrnd,1:nlevwtr)) ; this%wtr_h2osoi_liq_old_col     (:,:,:) = nan
+       allocate(this%wtr_h2osoi_ice_old_col     (begc:endc,-nlevsno+1:nlevgrnd,1:nlevwtr)) ; this%wtr_h2osoi_ice_old_col     (:,:,:) = nan
+       allocate(this%wtr_h2osoi_ice_col         (begc:endc,-nlevsno+1:nlevgrnd,1:nlevwtr)) ; this%wtr_h2osoi_ice_col         (:,:,:) = nan
+       allocate(this%wtr_h2osoi_liq_col         (begc:endc,-nlevsno+1:nlevgrnd,1:nlevwtr)) ; this%wtr_h2osoi_liq_col         (:,:,:) = nan
+       allocate(this%wtr_h2ocan_patch           (begp:endp,1:nlevwtr))                     ; this%wtr_h2ocan_patch           (:,:)   = nan
+       allocate(this%wtr_h2ocan_col             (begc:endc,1:nlevwtr))                     ; this%wtr_h2ocan_col             (:,:)   = nan
+       allocate(this%wtr_h2osfc_col             (begc:endc,1:nlevwtr))                     ; this%wtr_h2osfc_col             (:,:)   = nan
+       allocate(this%wtr_swe_old_col            (begc:endc,-nlevsno+1:0,1:nlevwtr))        ; this%wtr_swe_old_col            (:,:,:) = nan
+       allocate(this%wtr_liq1_grc               (begg:endg,1:nlevwtr))                     ; this%wtr_liq1_grc               (:,:)   = nan
+       allocate(this%wtr_liq2_grc               (begg:endg,1:nlevwtr))                     ; this%wtr_liq2_grc               (:,:)   = nan
+       allocate(this%wtr_ice1_grc               (begg:endg,1:nlevwtr))                     ; this%wtr_ice1_grc               (:,:)   = nan
+       allocate(this%wtr_ice2_grc               (begg:endg,1:nlevwtr))                     ; this%wtr_ice2_grc               (:,:)   = nan
+       allocate(this%wtr_tws_grc                (begg:endg,1:nlevwtr))                     ; this%wtr_tws_grc                (:,:)   = nan
+       allocate(this%wtr_tws_month_beg_grc      (begg:endg,1:nlevwtr))                     ; this%wtr_tws_month_beg_grc      (:,:)   = nan
+       allocate(this%wtr_tws_month_end_grc      (begg:endg,1:nlevwtr))                     ; this%wtr_tws_month_end_grc      (:,:)   = nan
+       allocate(this%wtr_total_plant_stored_h2o_col(begc:endc,1:nlevwtr))                  ; this%wtr_total_plant_stored_h2o_col(:,:) = nan
+       allocate(this%wtr_h2osno_top_col         (begc:endc,1:nlevwtr))                     ; this%wtr_h2osno_top_col         (:,:)   = nan
+       allocate(this%wtr_sno_liq_top_col        (begc:endc,1:nlevwtr))                     ; this%wtr_sno_liq_top_col        (:,:)   = nan
+       allocate(this%wtr_qg_snow_col            (begc:endc,1:nlevwtr))                     ; this%wtr_qg_snow_col            (:,:)   = nan
+       allocate(this%wtr_qg_soil_col            (begc:endc,1:nlevwtr))                     ; this%wtr_qg_soil_col            (:,:)   = nan
+       allocate(this%wtr_qg_h2osfc_col          (begc:endc,1:nlevwtr))                     ; this%wtr_qg_h2osfc_col          (:,:)   = nan
+       allocate(this%wtr_qg_col                 (begc:endc,1:nlevwtr))                     ; this%wtr_qg_col                 (:,:)   = nan
+       allocate(this%wtr_q_ref2m_patch          (begp:endp,1:nlevwtr))                     ; this%wtr_q_ref2m_patch          (:,:)   = nan
+       allocate(this%wtr_begwb_patch            (begp:endp,1:nlevwtr))                     ; this%wtr_begwb_patch            (:,:)   = nan
+       allocate(this%wtr_begwb_col              (begc:endc,1:nlevwtr))                     ; this%wtr_begwb_col              (:,:)   = nan
+       allocate(this%wtr_begwb_grc              (begg:endg,1:nlevwtr))                     ; this%wtr_begwb_grc              (:,:)   = nan
+       allocate(this%wtr_endwb_patch            (begp:endp,1:nlevwtr))                     ; this%wtr_endwb_patch            (:,:)   = nan
+       allocate(this%wtr_endwb_col              (begc:endc,1:nlevwtr))                     ; this%wtr_endwb_col              (:,:)   = nan
+       allocate(this%wtr_endwb_grc              (begg:endg,1:nlevwtr))                     ; this%wtr_endwb_grc              (:,:)   = nan
+       allocate(this%wtr_errh2o_patch           (begp:endp,1:nlevwtr))                     ; this%wtr_errh2o_patch           (:,:)   = nan
+       allocate(this%wtr_errh2o_col             (begc:endc,1:nlevwtr))                     ; this%wtr_errh2o_col             (:,:)   = nan
+       allocate(this%wtr_errh2o_grc             (begg:endg,1:nlevwtr))                     ; this%wtr_errh2o_grc             (:,:)   = nan
+       allocate(this%wtr_errh2osno_col          (begc:endc,1:nlevwtr))                     ; this%wtr_errh2osno_col          (:,:)   = nan
+       allocate(this%wtr_h2osoi_liq_depth_intg_col(begc:endc,1:nlevwtr))                   ; this%wtr_h2osoi_liq_depth_intg_col(:,:) = nan
+       allocate(this%wtr_h2osoi_ice_depth_intg_col(begc:endc,1:nlevwtr))                   ; this%wtr_h2osoi_ice_depth_intg_col(:,:) = nan
+       allocate(this%wtr_beg_h2ocan_grc          (begg:endg,1:nlevwtr))                    ; this%wtr_beg_h2ocan_grc         (:,:)   = nan
+       allocate(this%wtr_beg_h2osno_grc          (begg:endg,1:nlevwtr))                    ; this%wtr_beg_h2osno_grc         (:,:)   = nan
+       allocate(this%wtr_beg_h2osfc_grc          (begg:endg,1:nlevwtr))                    ; this%wtr_beg_h2osfc_grc         (:,:)   = nan
+       allocate(this%wtr_beg_h2osoi_liq_grc      (begg:endg,1:nlevwtr))                    ; this%wtr_beg_h2osoi_liq_grc     (:,:)   = nan
+       allocate(this%wtr_beg_h2osoi_ice_grc      (begg:endg,1:nlevwtr))                    ; this%wtr_beg_h2osoi_ice_grc     (:,:)   = nan
+       allocate(this%wtr_end_h2ocan_grc          (begg:endg,1:nlevwtr))                    ; this%wtr_end_h2ocan_grc         (:,:)   = nan
+       allocate(this%wtr_end_h2osno_grc          (begg:endg,1:nlevwtr))                    ; this%wtr_end_h2osno_grc         (:,:)   = nan
+       allocate(this%wtr_end_h2osfc_grc          (begg:endg,1:nlevwtr))                    ; this%wtr_end_h2osfc_grc         (:,:)   = nan
+       allocate(this%wtr_end_h2osoi_liq_grc      (begg:endg,1:nlevwtr))                    ; this%wtr_end_h2osoi_liq_grc     (:,:)   = nan
+       allocate(this%wtr_end_h2osoi_ice_grc      (begg:endg,1:nlevwtr))                    ; this%wtr_end_h2osoi_ice_grc     (:,:)   = nan
+       if (use_fan) then
+          allocate(this%wtr_h2osoi_tend_tsl_col(begc:endc,1:nlevwtr))     ; this%wtr_h2osoi_tend_tsl_col(:,:) = nan
+       end if
+    end if
+    !-----end water tracer vars--------------------------
+
   end subroutine InitAllocate
 
   !------------------------------------------------------------------------
@@ -391,6 +516,7 @@ contains
     character(len=256) :: locfn       
     real(r8)           :: snowbd      ! temporary calculation of snow bulk density (kg/m3)
     real(r8)           :: fmelt       ! snowbd/100
+    integer            :: ntr         !Huancui
     !-----------------------------------------------------------------------
 
     SHR_ASSERT_ALL((ubound(h2osno_input_col)     == (/bounds%endc/))          , errMsg(__FILE__, __LINE__))
@@ -405,6 +531,19 @@ contains
        this%snow_depth_col(c)         = snow_depth_input_col(c)
        this%snow_persistence_col(c)   = 0._r8
        this%snow_layer_unity_col(c,:) = 1._r8
+       if (use_wtr) then  !Huancui
+         do ntr = 1,nlevwtr
+            if (ntr .eq. 1) then
+               this%wtr_h2osno_col(c,ntr)     = h2osno_input_col(c)
+               this%wtr_int_snow_col(c,ntr)   = h2osno_input_col(c)
+               this%wtr_snow_depth_col(c,ntr) = snow_depth_input_col(c)
+            else
+               this%wtr_h2osno_col(c,ntr)     = 0._r8
+               this%wtr_int_snow_col(c,ntr)   = 0._r8
+               this%wtr_snow_depth_col(c,ntr) = 0._r8
+            endif
+         end do
+       end if
     end do
 
     do c = bounds%begc,bounds%endc
@@ -433,6 +572,11 @@ contains
       this%h2osfc_col(bounds%begc:bounds%endc) = 0._r8
       this%h2ocan_patch(bounds%begp:bounds%endp) = 0._r8
       this%h2ocan_col(bounds%begc:bounds%endc) = 0._r8
+      if (use_wtr) then    !Huancui
+         this%wtr_h2osfc_col(bounds%begc:bounds%endc,1:nlevwtr) = 0._r8
+         this%wtr_h2ocan_patch(bounds%begp:bounds%endp,1:nlevwtr) = 0._r8
+         this%wtr_h2ocan_col(bounds%begc:bounds%endc,1:nlevwtr) = 0._r8
+      end if
 
       this%frac_h2osfc_col(bounds%begc:bounds%endc) = 0._r8
 
@@ -482,6 +626,15 @@ contains
             this%snw_rds_top_col(c)               = spval
             this%sno_liq_top_col(c)               = spval
          endif
+         if (use_wtr) then    !Huancui
+            do ntr = 1,nlevwtr
+               if (ntr .eq. 1) then
+                  this%wtr_sno_liq_top_col(c,ntr)    = spval
+               else
+                  this%wtr_sno_liq_top_col(c,ntr)    = 0._r8
+               end if
+            end do
+         end if
       end do
 
     end associate
@@ -561,6 +714,10 @@ contains
 
     this%h2osoi_liq_old_col(begc:endc,:) = this%h2osoi_liq_col(begc:endc,:)
     this%h2osoi_ice_old_col(begc:endc,:) = this%h2osoi_ice_col(begc:endc,:)
+    if (use_wtr) then   !Huancui
+       this%wtr_h2osoi_liq_old_col(begc:endc,:,:) = this%wtr_h2osoi_liq_col(begc:endc,:,:)
+       this%wtr_h2osoi_liq_old_col(begc:endc,:,:) = this%wtr_h2osoi_liq_col(begc:endc,:,:)
+    end if
       
   end subroutine save_h2osoi_old
 end module WaterstateType

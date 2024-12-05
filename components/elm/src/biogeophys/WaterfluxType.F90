@@ -11,6 +11,7 @@ module WaterfluxType
   use ColumnType   , only : col_pp                
   use VegetationType    , only : veg_pp                
   use AnnualFluxDribbler, only : annual_flux_dribbler_type, annual_flux_dribbler_gridcell
+  use elm_varctl   , only : use_wtr, nlevwtr
   !
   implicit none
   save
@@ -138,6 +139,114 @@ module WaterfluxType
      real(r8), pointer :: mflx_drain_col           (:,:) ! drainage from groundwater table (kg H2O /s)
      real(r8), pointer :: mflx_recharge_col        (:)   ! recharge from soil column to unconfined aquifer (kg H2O /s)
      real(r8), pointer :: sapflow_patch (:) !plant hydraulics, (mm/s)
+
+     !------Huancui: water tracer variables------
+     real(r8), pointer :: wtr_qflx_prec_grnd_patch     (:,:)   ! tracer patch water onto ground including canopy runoff [kg/(m2 s)]
+     real(r8), pointer :: wtr_qflx_prec_grnd_col       (:,:)   ! tracer col water onto ground including canopy runoff [kg/(m2 s)]
+     real(r8), pointer :: wtr_qflx_rain_grnd_patch     (:,:)   ! tracer patch rain on ground after interception (mm H2O/s) [+]
+     real(r8), pointer :: wtr_qflx_rain_grnd_col       (:,:)   ! tracer col rain on ground after interception (mm H2O/s) [+]
+     real(r8), pointer :: wtr_qflx_snow_grnd_patch     (:,:)   ! tracer patch snow on ground after interception (mm H2O/s) [+]
+     real(r8), pointer :: wtr_qflx_snow_grnd_col       (:,:)   ! tracer col snow on ground after interception (mm H2O/s) [+]
+     real(r8), pointer :: wtr_qflx_sub_snow_patch      (:,:)   ! tracer patch sublimation rate from snow pack (mm H2O /s) [+]
+     real(r8), pointer :: wtr_qflx_sub_snow_col        (:,:)   ! tracer col sublimation rate from snow pack (mm H2O /s) [+]
+     real(r8), pointer :: wtr_qflx_sub_snow_vol_col    (:,:)   !
+     real(r8), pointer :: wtr_qflx_evap_soi_patch      (:,:)   ! tracer patch soil evaporation (mm H2O/s) (+ = to atm)
+     real(r8), pointer :: wtr_qflx_evap_soi_col        (:,:)   ! tracer col soil evaporation (mm H2O/s) (+ = to atm)
+     real(r8), pointer :: wtr_qflx_evap_veg_patch      (:,:)   ! tracer patch vegetation evaporation (mm H2O/s) (+ = to atm)
+     real(r8), pointer :: wtr_qflx_evap_veg_col        (:,:)   ! tracer col vegetation evaporation (mm H2O/s) (+ = to atm)
+     real(r8), pointer :: wtr_qflx_evap_can_patch      (:,:)   ! tracer patch evaporation from leaves and stems (mm H2O/s) (+ = to atm)
+     real(r8), pointer :: wtr_qflx_evap_can_col        (:,:)   ! tracer col evaporation from leaves and stems (mm H2O/s) (+ = to atm)
+     real(r8), pointer :: wtr_qflx_evap_tot_patch      (:,:)   ! tracer patch pft_qflx_evap_soi + pft_qflx_evap_veg + qflx_tran_veg
+     real(r8), pointer :: wtr_qflx_evap_tot_col        (:,:)   ! tracer col col_qflx_evap_soi + col_qflx_evap_veg + qflx_tran_veg
+     real(r8), pointer :: wtr_qflx_evap_grnd_patch     (:,:)   ! tracer patch ground surface evaporation rate (mm H2O/s) [+]
+     real(r8), pointer :: wtr_qflx_evap_grnd_col       (:,:)   ! tracer col ground surface evaporation rate (mm H2O/s) [+]
+     real(r8), pointer :: wtr_qflx_phs_neg_col         (:,:)   ! tracer col sum of negative hydraulic redistribution fluxes (mm H2O/s) [+]
+     real(r8), pointer :: wtr_qflx_snwcp_liq_patch     (:,:)   ! tracer patch excess rainfall due to snow capping (mm H2O /s)
+     real(r8), pointer :: wtr_qflx_snwcp_liq_col       (:,:)   ! tracer col excess rainfall due to snow capping (mm H2O /s)
+     real(r8), pointer :: wtr_qflx_snwcp_ice_patch     (:,:)   ! tracer patch excess snowfall due to snow capping (mm H2O /s)
+     real(r8), pointer :: wtr_qflx_snwcp_ice_col       (:,:)   ! tracer col excess snowfall due to snow capping (mm H2O /s)
+     real(r8), pointer :: wtr_qflx_tran_veg_patch      (:,:)   ! tracer patch vegetation transpiration (mm H2O/s) (+ = to atm)
+     real(r8), pointer :: wtr_qflx_tran_veg_col        (:,:)   ! tracer col vegetation transpiration (mm H2O/s) (+ = to atm)
+     real(r8), pointer :: wtr_qflx_dew_snow_patch      (:,:)   ! tracer patch surface dew added to snow pack (mm H2O /s) [+]
+     real(r8), pointer :: wtr_qflx_dew_snow_col        (:,:)   ! tracer col surface dew added to snow pack (mm H2O /s) [+]
+     real(r8), pointer :: wtr_qflx_dew_grnd_patch      (:,:)   ! tracer patch ground surface dew formation (mm H2O /s) [+]
+     real(r8), pointer :: wtr_qflx_dew_grnd_col        (:,:)   ! tracer col ground surface dew formation (mm H2O /s) [+] (+ = to atm); usually eflx_bot >= 0)
+     real(r8), pointer :: wtr_qflx_prec_intr_patch     (:,:)   ! tracer patch interception of precipitation [mm/s]
+     real(r8), pointer :: wtr_qflx_prec_intr_col       (:,:)   ! tracer col interception of precipitation [mm/s]
+     real(r8), pointer :: wtr_qflx_ev_snow_patch       (:,:)   ! tracer patch evaporation heat flux from snow       (W/m**2) [+ to atm] ! tracer NOTE: unit shall be mm H2O/s for water NOT heat
+     real(r8), pointer :: wtr_qflx_ev_snow_col         (:,:)   ! tracer col evaporation heat flux from snow         (W/m**2) [+ to atm] ! tracer NOTE: unit shall be mm H2O/s for water NOT heat
+     real(r8), pointer :: wtr_qflx_ev_soil_patch       (:,:)   ! tracer patch evaporation heat flux from soil       (W/m**2) [+ to atm] ! tracer NOTE: unit shall be mm H2O/s for water NOT heat
+     real(r8), pointer :: wtr_qflx_ev_soil_col         (:,:)   ! tracer col evaporation heat flux from soil         (W/m**2) [+ to atm] ! tracer NOTE: unit shall be mm H2O/s for water NOT heat
+     real(r8), pointer :: wtr_qflx_ev_h2osfc_patch     (:,:)   ! tracer patch evaporation heat flux from soil       (W/m**2) [+ to atm] ! tracer NOTE: unit shall be mm H2O/s for water NOT heat
+     real(r8), pointer :: wtr_qflx_ev_h2osfc_col       (:,:)   ! tracer col evaporation heat flux from soil         (W/m**2) [+ to atm] ! tracer NOTE: unit shall be mm H2O/s for water NOT heat
+     real(r8), pointer :: wtr_qflx_gross_evap_soil_col (:,:)   ! tracer col gross infiltration from soil, this satisfies the relationship qflx_infl_col = qflx_gross_infl_soil_col-qflx_gross_evap_soil_col
+     real(r8), pointer :: wtr_qflx_gross_infl_soil_col (:,:)   ! tracer col gross infiltration, before considering the evaporation
+     real(r8), pointer :: wtr_qflx_adv_col             (:,:,:) ! tracer col advective flux across different soil layer interfaces [mm H2O/s] [+ downward]
+     real(r8), pointer :: wtr_qflx_rootsoi_col         (:,:,:) ! tracer col root and soil water exchange [mm H2O/s] [+ into root]
+     real(r8), pointer :: wtr_qflx_rootsoi_frac_patch  (:,:,:)
+     real(r8), pointer :: wtr_dwb_col                  (:,:)   ! tracer coll water mass change [+ increase] [mm H2O/s]
+     real(r8), pointer :: wtr_qflx_infl_col            (:,:)   ! tracer col infiltration (mm H2O /s)
+     real(r8), pointer :: wtr_qflx_surf_col            (:,:)   ! tracer col surface runoff (mm H2O /s)
+     real(r8), pointer :: wtr_qflx_drain_col           (:,:)   ! tracer col sub-surface runoff (mm H2O /s)
+     real(r8), pointer :: wtr_qflx_totdrain_col        (:,:)
+     real(r8), pointer :: wtr_qflx_top_soil_col        (:,:)   ! tracer col net water input into soil from top (mm/s)
+     real(r8), pointer :: wtr_qflx_h2osfc_to_ice_col   (:,:)   ! tracer col conversion of h2osfc to ice
+     real(r8), pointer :: wtr_qflx_h2osfc_surf_col     (:,:)   ! tracer col surface water runoff
+     real(r8), pointer :: wtr_qflx_snow_h2osfc_col     (:,:)   ! tracer col snow falling on surface water
+     real(r8), pointer :: wtr_qflx_drain_perched_col   (:,:)   ! tracer col sub-surface runoff from perched wt (mm H2O /s)
+     real(r8), pointer :: wtr_qflx_deficit_col         (:,:)   ! tracer col water deficit to keep non-negative liquid water content (mm H2O)
+     real(r8), pointer :: wtr_qflx_floodc_col          (:,:)   ! tracer col flood water flux at column level
+     real(r8), pointer :: wtr_qflx_sl_top_soil_col     (:,:)   ! tracer col liquid water + ice from layer above soil to top soil layer or sent to qflx_qrgwl (mm H2O/s)
+     real(r8), pointer :: wtr_qflx_snomelt_col         (:,:)   ! tracer col snow melt (mm H2O /s)
+     real(r8), pointer :: wtr_qflx_snow_melt_col       (:,:)   ! tracer col snow melt (net)
+     real(r8), pointer :: wtr_qflx_qrgwl_col           (:,:)   ! tracer col qflx_surf at glaciers, wetlands, lakes
+     real(r8), pointer :: wtr_qflx_runoff_col          (:,:)   ! tracer col total runoff (qflx_drain+qflx_surf+qflx_qrgwl) (mm H2O /s)
+     real(r8), pointer :: wtr_qflx_runoff_r_col        (:,:)   ! tracer col Rural total runoff (qflx_drain+qflx_surf+qflx_qrgwl) (mm H2O /s)
+     real(r8), pointer :: wtr_qflx_runoff_u_col        (:,:)   ! tracer col urban total runoff (qflx_drain+qflx_surf) (mm H2O /s)
+     real(r8), pointer :: wtr_qflx_rsub_sat_col        (:,:)   ! tracer col soil saturation excess [mm/s]
+     real(r8), pointer :: wtr_qflx_snofrz_lyr_col      (:,:,:) ! tracer col snow freezing rate (positive definite) (col,lyr) [kg m-2 s-1]
+     real(r8), pointer :: wtr_qflx_snofrz_col          (:,:)   ! tracer col column-integrated snow freezing rate (positive definite) (col) [kg m-2 s-1]
+     real(r8), pointer :: wtr_qflx_glcice_col          (:,:)   ! tracer col net flux of new glacial ice (growth - melt) (mm H2O/s), passed to GLC
+     real(r8), pointer :: wtr_qflx_glcice_frz_col      (:,:)   ! tracer col ice growth (positive definite) (mm H2O/s)
+     real(r8), pointer :: wtr_qflx_glcice_melt_col     (:,:)   ! tracer col ice melt (positive definite) (mm H2O/s)
+     real(r8), pointer :: wtr_qflx_drain_vr_col        (:,:,:) ! tracer col liquid water losted as drainage (m /time step)
+     real(r8), pointer :: wtr_qflx_h2osfc2topsoi_col   (:,:)   ! tracer col liquid water coming from surface standing water top soil (mm H2O/s)
+     real(r8), pointer :: wtr_qflx_snow2topsoi_col     (:,:)   ! tracer col liquid water coming from residual snow to topsoil (mm H2O/s)
+     real(r8), pointer :: wtr_qflx_lateral_col         (:,:)   ! tracer col lateral subsurface flux (mm H2O /s)
+     real(r8), pointer :: wtr_snow_sources_col         (:,:)   ! tracer col snow sources (mm H2O/s)
+     real(r8), pointer :: wtr_snow_sinks_col           (:,:)   ! tracer col snow sinks (mm H2O/s)
+     real(r8), pointer :: wtr_qflx_liq_dynbal_grc      (:,:)   ! trcer grc liq dynamic land cover change conversion runoff flux
+     real(r8), pointer :: wtr_qflx_ice_dynbal_grc      (:,:)   ! tracer grc ice dynamic land cover change conversion runoff flux
+     real(r8), pointer :: wtr_qflx_irrig_patch         (:,:)   ! tracer patch irrigation flux (mm H2O/s)
+     real(r8), pointer :: wtr_qflx_real_irrig_patch    (:,:)   ! tracer patch real irrigation flux (mm H2O/s)
+     real(r8), pointer :: wtr_qflx_surf_irrig_col      (:,:)   ! tracer col real surface irrigation flux (mm H2O/s)
+     real(r8), pointer :: wtr_qflx_grnd_irrig_col      (:,:)   ! tracer col real groundwater irrigation flux (mm H2O/s)
+     real(r8), pointer :: wtr_qflx_grnd_irrig_patch    (:,:)   ! tracer groundwater irrigation (mm H2O/s)
+     real(r8), pointer :: wtr_qflx_surf_irrig_patch    (:,:)   ! tracer surface water irrigation(mm H2O/s)
+     real(r8), pointer :: wtr_qflx_supply_patch        (:,:)   ! tracer patch supply flux (mm H2O/s)
+     real(r8), pointer :: wtr_qflx_irrig_col           (:,:)   ! tracer col irrigation flux (mm H2O/s)
+     real(r8), pointer :: wtr_qflx_irr_demand_col      (:,:)   ! tracer col surface irrigation demand (mm H2O /s)
+     real(r8), pointer :: wtr_irrig_rate_patch         (:,:)   ! tracer current irrigation rate [mm/s]
+     real(r8), pointer :: wtr_qflx_over_supply_patch   (:,:)   ! tracer over supplied irrigation
+     real(r8), pointer :: wtr_qflx_over_supply_col     (:,:)   ! tracer col over supplied irrigation
+     real(r8), pointer :: wtr_mflx_infl_col_1d         (:,:)   ! tracer infiltration source in top soil control volume (kg H2O /s)
+     real(r8), pointer :: wtr_mflx_dew_col_1d          (:,:)   ! tracer liquid+snow dew source in top soil control volume (kg H2O /s)
+     real(r8), pointer :: wtr_mflx_et_col_1d           (:,:)   ! tracer evapotranspiration sink from all soil coontrol volumes (kg H2O /s)
+     real(r8), pointer :: wtr_mflx_drain_col_1d        (:,:)   ! tracer drainage from groundwater table (kg H2O /s)
+     real(r8), pointer :: wtr_mflx_drain_perched_col_1d(:,:)   ! tracer drainage from perched water table (kg H2O /s)
+     real(r8), pointer :: wtr_mflx_snowlyr_col_1d      (:,:)   ! tracer mass flux to top soil layer due to disappearance of snow (kg H2O /s)
+     real(r8), pointer :: wtr_mflx_sub_snow_col_1d     (:,:)   ! tracer mass flux from top soil layer due to sublimation of snow (kg H2O /s)
+     real(r8), pointer :: wtr_mflx_snowlyr_col         (:,:)   ! tracer mass flux to top soil layer due to disappearance of snow (kg H2O /s). This is for restart
+     real(r8), pointer :: wtr_mflx_neg_snow_col_1d     (:,:)   ! tracer mass flux from top soil layer due to negative water content in snow layers (kg H2O /s)
+     real(r8), pointer :: wtr_mflx_infl_col            (:,:)   ! tracer infiltration source in top soil control volume (kg H2O /s)
+     real(r8), pointer :: wtr_mflx_dew_col             (:,:)   ! tracer liquid+snow dew source in top soil control volume (kg H2O /s)
+     real(r8), pointer :: wtr_mflx_snowlyr_disp_col    (:,:)   ! tracer mass flux to top soil layer due to disappearance of snow (kg H2O /s)
+     real(r8), pointer :: wtr_mflx_sub_snow_col        (:,:)   ! tracer mass flux from top soil layer due to sublimation of snow (kg H2O /s)
+     real(r8), pointer :: wtr_mflx_et_col              (:,:,:) ! tracer evapotranspiration sink from all soil coontrol volumes (kg H2O /s)
+     real(r8), pointer :: wtr_mflx_drain_col           (:,:,:) ! tracer drainage from groundwater table (kg H2O /s)
+     real(r8), pointer :: wtr_mflx_recharge_col        (:,:)   ! tracer recharge from soil column to unconfined aquifer (kg H2O /s)
+     real(r8), pointer :: wtr_sapflow_patch (:,:) ! tracer plant hydraulics, (mm/s)
+     !------end water tracer vars----------------
 
    contains
  
@@ -311,6 +420,115 @@ contains
     allocate(this%mflx_recharge_col      (begc:endc))                ; this%mflx_recharge_col        (:)   = nan
     allocate(this%sapflow_patch          (begp:endp))                ; this%sapflow_patch              (:) = nan
 
+    if (use_wtr) then  !Huancui
+       allocate(this%wtr_qflx_prec_intr_patch     (begp:endp,1:nlevwtr))              ; this%wtr_qflx_prec_intr_patch     (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_prec_grnd_patch     (begp:endp,1:nlevwtr))              ; this%wtr_qflx_prec_grnd_patch     (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_rain_grnd_patch     (begp:endp,1:nlevwtr))              ; this%wtr_qflx_rain_grnd_patch     (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_snow_grnd_patch     (begp:endp,1:nlevwtr))              ; this%wtr_qflx_snow_grnd_patch     (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_sub_snow_patch      (begp:endp,1:nlevwtr))              ; this%wtr_qflx_sub_snow_patch      (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_snwcp_liq_patch     (begp:endp,1:nlevwtr))              ; this%wtr_qflx_snwcp_liq_patch     (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_snwcp_ice_patch     (begp:endp,1:nlevwtr))              ; this%wtr_qflx_snwcp_ice_patch     (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_tran_veg_patch      (begp:endp,1:nlevwtr))              ; this%wtr_qflx_tran_veg_patch      (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_dew_grnd_patch      (begp:endp,1:nlevwtr))              ; this%wtr_qflx_dew_grnd_patch      (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_dew_snow_patch      (begp:endp,1:nlevwtr))              ; this%wtr_qflx_dew_snow_patch      (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_prec_intr_col       (begc:endc,1:nlevwtr))              ; this%wtr_qflx_prec_intr_col       (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_prec_grnd_col       (begc:endc,1:nlevwtr))              ; this%wtr_qflx_prec_grnd_col       (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_rain_grnd_col       (begc:endc,1:nlevwtr))              ; this%wtr_qflx_rain_grnd_col       (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_snow_grnd_col       (begc:endc,1:nlevwtr))              ; this%wtr_qflx_snow_grnd_col       (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_sub_snow_col        (begc:endc,1:nlevwtr))              ; this%wtr_qflx_sub_snow_col        (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_snwcp_liq_col       (begc:endc,1:nlevwtr))              ; this%wtr_qflx_snwcp_liq_col       (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_snwcp_ice_col       (begc:endc,1:nlevwtr))              ; this%wtr_qflx_snwcp_ice_col       (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_tran_veg_col        (begc:endc,1:nlevwtr))              ; this%wtr_qflx_tran_veg_col        (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_sub_snow_vol_col    (begc:endc,1:nlevwtr))              ; this%wtr_qflx_sub_snow_vol_col    (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_evap_veg_col        (begc:endc,1:nlevwtr))              ; this%wtr_qflx_evap_veg_col        (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_evap_can_col        (begc:endc,1:nlevwtr))              ; this%wtr_qflx_evap_can_col        (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_evap_soi_col        (begc:endc,1:nlevwtr))              ; this%wtr_qflx_evap_soi_col        (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_evap_tot_col        (begc:endc,1:nlevwtr))              ; this%wtr_qflx_evap_tot_col        (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_evap_grnd_col       (begc:endc,1:nlevwtr))              ; this%wtr_qflx_evap_grnd_col       (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_phs_neg_col         (begc:endc,1:nlevwtr))              ; this%wtr_qflx_phs_neg_col         (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_dew_grnd_col        (begc:endc,1:nlevwtr))              ; this%wtr_qflx_dew_grnd_col        (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_dew_snow_col        (begc:endc,1:nlevwtr))              ; this%wtr_qflx_dew_snow_col        (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_evap_veg_patch      (begp:endp,1:nlevwtr))              ; this%wtr_qflx_evap_veg_patch      (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_evap_can_patch      (begp:endp,1:nlevwtr))              ; this%wtr_qflx_evap_can_patch      (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_evap_soi_patch      (begp:endp,1:nlevwtr))              ; this%wtr_qflx_evap_soi_patch      (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_evap_tot_patch      (begp:endp,1:nlevwtr))              ; this%wtr_qflx_evap_tot_patch      (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_evap_grnd_patch     (begp:endp,1:nlevwtr))              ; this%wtr_qflx_evap_grnd_patch     (:,:)   = 0.0_r8
+       allocate(this%wtr_dwb_col                  (begc:endc,1:nlevwtr))              ; this%wtr_dwb_col                  (:,:)   = 0.0_r8
+       allocate( this%wtr_qflx_ev_snow_patch      (begp:endp,1:nlevwtr))              ; this%wtr_qflx_ev_snow_patch       (:,:)   = 0.0_r8
+       allocate( this%wtr_qflx_ev_snow_col        (begc:endc,1:nlevwtr))              ; this%wtr_qflx_ev_snow_col         (:,:)   = 0.0_r8
+       allocate( this%wtr_qflx_ev_soil_patch      (begp:endp,1:nlevwtr))              ; this%wtr_qflx_ev_soil_patch       (:,:)   = 0.0_r8
+       allocate( this%wtr_qflx_ev_soil_col        (begc:endc,1:nlevwtr))              ; this%wtr_qflx_ev_soil_col         (:,:)   = 0.0_r8
+       allocate( this%wtr_qflx_ev_h2osfc_patch    (begp:endp,1:nlevwtr))              ; this%wtr_qflx_ev_h2osfc_patch     (:,:)   = 0.0_r8
+       allocate( this%wtr_qflx_ev_h2osfc_col      (begc:endc,1:nlevwtr))              ; this%wtr_qflx_ev_h2osfc_col       (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_gross_evap_soil_col (begc:endc,1:nlevwtr))              ; this%wtr_qflx_gross_evap_soil_col (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_gross_infl_soil_col (begc:endc,1:nlevwtr))              ; this%wtr_qflx_gross_infl_soil_col (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_drain_vr_col        (begc:endc,1:nlevgrnd,1:nlevwtr))   ; this%wtr_qflx_drain_vr_col        (:,:,:) = 0.0_r8
+       allocate(this%wtr_qflx_adv_col             (begc:endc,0:nlevgrnd,1:nlevwtr))   ; this%wtr_qflx_adv_col             (:,:,:) = 0.0_r8
+       allocate(this%wtr_qflx_rootsoi_col         (begc:endc,1:nlevgrnd,1:nlevwtr))   ; this%wtr_qflx_rootsoi_col         (:,:,:) = 0.0_r8
+       allocate(this%wtr_qflx_rootsoi_frac_patch  (begp:endp,1:nlevgrnd,1:nlevwtr))   ; this%wtr_qflx_rootsoi_frac_patch  (:,:,:) = 0.0_r8
+       allocate(this%wtr_qflx_infl_col            (begc:endc,1:nlevwtr))              ; this%wtr_qflx_infl_col            (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_surf_col            (begc:endc,1:nlevwtr))              ; this%wtr_qflx_surf_col            (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_totdrain_col        (begc:endc,1:nlevwtr))              ; this%wtr_qflx_totdrain_col        (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_drain_col           (begc:endc,1:nlevwtr))              ; this%wtr_qflx_drain_col           (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_top_soil_col        (begc:endc,1:nlevwtr))              ; this%wtr_qflx_top_soil_col        (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_h2osfc_to_ice_col   (begc:endc,1:nlevwtr))              ; this%wtr_qflx_h2osfc_to_ice_col   (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_h2osfc_surf_col     (begc:endc,1:nlevwtr))              ; this%wtr_qflx_h2osfc_surf_col     (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_snow_h2osfc_col     (begc:endc,1:nlevwtr))              ; this%wtr_qflx_snow_h2osfc_col     (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_snomelt_col         (begc:endc,1:nlevwtr))              ; this%wtr_qflx_snomelt_col         (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_snow_melt_col       (begc:endc,1:nlevwtr))              ; this%wtr_qflx_snow_melt_col       (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_snofrz_col          (begc:endc,1:nlevwtr))              ; this%wtr_qflx_snofrz_col          (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_snofrz_lyr_col      (begc:endc,-nlevsno+1:0,1:nlevwtr)) ; this%wtr_qflx_snofrz_lyr_col      (:,:,:) = 0.0_r8
+       allocate(this%wtr_qflx_qrgwl_col           (begc:endc,1:nlevwtr))              ; this%wtr_qflx_qrgwl_col           (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_drain_perched_col   (begc:endc,1:nlevwtr))              ; this%wtr_qflx_drain_perched_col   (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_deficit_col         (begc:endc,1:nlevwtr))              ; this%wtr_qflx_deficit_col         (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_floodc_col          (begc:endc,1:nlevwtr))              ; this%wtr_qflx_floodc_col          (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_sl_top_soil_col     (begc:endc,1:nlevwtr))              ; this%wtr_qflx_sl_top_soil_col     (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_runoff_col          (begc:endc,1:nlevwtr))              ; this%wtr_qflx_runoff_col          (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_runoff_r_col        (begc:endc,1:nlevwtr))              ; this%wtr_qflx_runoff_r_col        (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_runoff_u_col        (begc:endc,1:nlevwtr))              ; this%wtr_qflx_runoff_u_col        (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_rsub_sat_col        (begc:endc,1:nlevwtr))              ; this%wtr_qflx_rsub_sat_col        (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_glcice_col          (begc:endc,1:nlevwtr))              ; this%wtr_qflx_glcice_col          (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_glcice_frz_col      (begc:endc,1:nlevwtr))              ; this%wtr_qflx_glcice_frz_col      (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_glcice_melt_col     (begc:endc,1:nlevwtr))              ; this%wtr_qflx_glcice_melt_col     (:,:)   = 0.0_r8
+       allocate(this%wtr_snow_sources_col         (begc:endc,1:nlevwtr))              ; this%wtr_snow_sources_col         (:,:)   = 0.0_r8
+       allocate(this%wtr_snow_sinks_col           (begc:endc,1:nlevwtr))              ; this%wtr_snow_sinks_col           (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_liq_dynbal_grc      (begg:endg,1:nlevwtr))              ; this%wtr_qflx_liq_dynbal_grc      (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_ice_dynbal_grc      (begg:endg,1:nlevwtr))              ; this%wtr_qflx_ice_dynbal_grc      (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_irrig_patch         (begp:endp,1:nlevwtr))              ; this%wtr_qflx_irrig_patch         (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_real_irrig_patch    (begp:endp,1:nlevwtr))              ; this%wtr_qflx_real_irrig_patch    (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_surf_irrig_col      (begc:endc,1:nlevwtr))              ; this%wtr_qflx_surf_irrig_col      (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_grnd_irrig_col      (begc:endc,1:nlevwtr))              ; this%wtr_qflx_grnd_irrig_col      (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_grnd_irrig_patch    (begp:endp,1:nlevwtr))              ; this%wtr_qflx_grnd_irrig_patch    (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_surf_irrig_patch    (begp:endp,1:nlevwtr))              ; this%wtr_qflx_surf_irrig_patch    (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_supply_patch        (begp:endp,1:nlevwtr))              ; this%wtr_qflx_supply_patch        (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_over_supply_patch   (begp:endp,1:nlevwtr))              ; this%wtr_qflx_over_supply_patch   (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_over_supply_col     (begc:endc,1:nlevwtr))              ; this%wtr_qflx_over_supply_col     (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_irrig_col           (begc:endc,1:nlevwtr))              ; this%wtr_qflx_irrig_col           (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_irr_demand_col      (begc:endc,1:nlevwtr))              ; this%wtr_qflx_irr_demand_col      (:,:)   = 0.0_r8
+       allocate(this%wtr_irrig_rate_patch         (begp:endp,1:nlevwtr))              ; this%wtr_irrig_rate_patch         (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_snow2topsoi_col     (begc:endc,1:nlevwtr))              ; this%wtr_qflx_snow2topsoi_col     (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_h2osfc2topsoi_col   (begc:endc,1:nlevwtr))              ; this%wtr_qflx_h2osfc2topsoi_col   (:,:)   = 0.0_r8
+       allocate(this%wtr_qflx_lateral_col         (begc:endc,1:nlevwtr))              ; this%wtr_qflx_lateral_col         (:,:)   = 0.0_r8
+       ncells = endc - begc + 1
+       allocate(this%wtr_mflx_infl_col_1d(            ncells,1:nlevwtr))              ; this%wtr_mflx_infl_col_1d         (:,:)   = 0.0_r8
+       allocate(this%wtr_mflx_dew_col_1d(             ncells,1:nlevwtr))              ; this%wtr_mflx_dew_col_1d          (:,:)   = 0.0_r8
+       allocate(this%wtr_mflx_snowlyr_col_1d(         ncells,1:nlevwtr))              ; this%wtr_mflx_snowlyr_col_1d      (:,:)   = 0.0_r8
+       allocate(this%wtr_mflx_sub_snow_col_1d(        ncells,1:nlevwtr))              ; this%wtr_mflx_sub_snow_col_1d     (:,:)   = 0.0_r8
+       allocate(this%wtr_mflx_snowlyr_col(         begc:endc,1:nlevwtr))              ; this%wtr_mflx_snowlyr_col         (:,:)   = 0.0_r8
+       allocate(this%wtr_mflx_neg_snow_col_1d(        ncells,1:nlevwtr))              ; this%wtr_mflx_neg_snow_col_1d     (:,:)   = 0.0_r8
+       ncells = (endc - begc + 1)*nlevgrnd
+       allocate(this%wtr_mflx_et_col_1d(              ncells,1:nlevwtr))              ; this%wtr_mflx_et_col_1d           (:,:)   = 0.0_r8
+       allocate(this%wtr_mflx_drain_col_1d(           ncells,1:nlevwtr))              ; this%wtr_mflx_drain_col_1d        (:,:)   = 0.0_r8
+       allocate(this%wtr_mflx_drain_perched_col_1d(   ncells,1:nlevwtr))              ; this%wtr_mflx_drain_perched_col_1d(:,:)   = 0.0_r8
+       allocate(this%wtr_mflx_infl_col          (begc:endc,1:nlevwtr))                ; this%wtr_mflx_infl_col            (:,:)   = 0.0_r8
+       allocate(this%wtr_mflx_dew_col           (begc:endc,1:nlevwtr))                ; this%wtr_mflx_dew_col             (:,:)   = 0.0_r8
+       allocate(this%wtr_mflx_snowlyr_disp_col  (begc:endc,1:nlevwtr))                ; this%wtr_mflx_snowlyr_disp_col    (:,:)   = 0.0_r8
+       allocate(this%wtr_mflx_sub_snow_col      (begc:endc,1:nlevwtr))                ; this%wtr_mflx_sub_snow_col        (:,:)   = 0.0_r8
+       allocate(this%wtr_mflx_et_col            (begc:endc,1:nlevgrnd,1:nlevwtr))     ; this%wtr_mflx_et_col              (:,:,:) = 0.0_r8
+       allocate(this%wtr_mflx_drain_col         (begc:endc,1:nlevgrnd,1:nlevwtr))     ; this%wtr_mflx_drain_col           (:,:,:) = 0.0_r8
+       allocate(this%wtr_mflx_recharge_col      (begc:endc,1:nlevwtr))                ; this%wtr_mflx_recharge_col        (:,:)   = 0.0_r8
+       allocate(this%wtr_sapflow_patch          (begp:endp,1:nlevwtr))                ; this%wtr_sapflow_patch            (:,:)   = 0.0_r8
+    end if
   end subroutine InitAllocate
 
   !------------------------------------------------------------------------

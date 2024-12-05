@@ -29,6 +29,7 @@ module CanopyTemperatureMod
   use ColumnDataType       , only : col_es, col_ef, col_ws
   use VegetationType       , only : veg_pp
   use VegetationDataType   , only : veg_es, veg_ef, veg_wf
+  use elm_varctl           , only : use_wtr, nlevwtr     !Huancui
   !
   ! !PUBLIC TYPES:
   implicit none
@@ -198,6 +199,10 @@ contains
          thv              =>    col_es%thv                            , & ! Output: [real(r8) (:)   ] virtual potential temperature (kelvin)
          thm              =>    veg_es%thm                            , & ! Output: [real(r8) (:)   ] intermediate variable (forc_t+0.0098*forc_hgt_t_patch)
          tssbef           =>    col_es%t_ssbef                          & ! Output: [real(r8) (:,:) ] soil/snow temperature before update (K)
+         !-----Huancui: water tracer variables------
+        ,wtr_qflx_evap_tot    =>    veg_wf%wtr_qflx_evap_tot    , & ! Output: [real(r8) (:,:)   ] wtr_qflx_evap_soi + wtr_qflx_evap_can + wtr_qflx_tran_veg
+         wtr_qflx_evap_veg    =>    veg_wf%wtr_qflx_evap_veg    , & ! Output: [real(r8) (:,:)   ] tracer vegetation evaporation (mm H2O/s) (+ = to atm)
+         wtr_qflx_tran_veg    =>    veg_wf%wtr_qflx_tran_veg      & ! Output: [real(r8) (:,:)   ] tracer vegetation transpiration (mm H2O/s) (+ = to atm)
          )
 
       do j = -nlevsno+1, nlevgrnd
@@ -429,6 +434,11 @@ contains
          qflx_evap_tot(p) = 0._r8
          qflx_evap_veg(p) = 0._r8
          qflx_tran_veg(p) = 0._r8
+         if (use_wtr) then    !Huancui
+            wtr_qflx_evap_tot(p,:) = 0._r8
+            wtr_qflx_evap_veg(p,:) = 0._r8
+            wtr_qflx_tran_veg(p,:) = 0._r8
+         end if
 
          ! Initial set for calculation
 

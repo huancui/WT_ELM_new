@@ -26,6 +26,7 @@ module BalanceCheckMod
   use ColumnDataType     , only : col_ef, col_ws, col_wf
   use VegetationType     , only : veg_pp
   use VegetationDataType , only : veg_ef, veg_ws
+  use elm_varctl         , only : use_wtr, nlevwtr    !Huancui
 
   use timeinfoMod
   !
@@ -71,6 +72,7 @@ contains
     ! !LOCAL VARIABLES:
     integer :: c, p, f, j, fc                  ! indices
     real(r8):: h2osoi_vol
+    integer :: ntr             !Huancui
     !-----------------------------------------------------------------------
 
     associate(                                                         &
@@ -85,6 +87,16 @@ contains
          wa                     =>    soilhydrology_vars%wa_col                  , & ! Output: [real(r8) (:)   ]  water in the unconfined aquifer (mm)
          h2ocan_col             =>    col_ws%h2ocan                 , & ! Output: [real(r8) (:)   ]  canopy water (mm H2O) (column level)
          begwb                  =>    col_ws%begwb                    & ! Output: [real(r8) (:)   ]  water mass begining of the time step
+        ,wtr_h2ocan_patch           =>    veg_ws%wtr_h2ocan               , & ! Input:  [real(r8) (:)   ]  canopy water (mm H2O) (pft-level)
+         wtr_h2osfc                 =>    col_ws%wtr_h2osfc                 , & ! Input:  [real(r8) (:)   ]  surface water (mm)
+         wtr_h2osno                 =>    col_ws%wtr_h2osno                 , & ! Input:  [real(r8) (:)   ]  snow water (mm H2O)
+         wtr_h2osoi_ice             =>    col_ws%wtr_h2osoi_ice             , & ! Input:  [real(r8) (:,:) ]  ice lens (kg/m2)
+         wtr_h2osoi_liq             =>    col_ws%wtr_h2osoi_liq             , & ! Input:  [real(r8) (:,:) ]  liquid water (kg/m2)
+         wtr_total_plant_stored_h2o =>    col_ws%wtr_total_plant_stored_h2o , & ! Input: [real(r8) (:) dynamic water stored in plants
+         wtr_zwt                    =>    soilhydrology_vars%wtr_zwt_col                 , & ! Input:  [real(r8) (:)   ]  water table depth (m)
+         wtr_wa                     =>    soilhydrology_vars%wtr_wa_col                  , & ! Output: [real(r8) (:)   ]  water in the unconfined aquifer (mm)
+         wtr_h2ocan_col             =>    col_ws%wtr_h2ocan                 , & ! Output: [real(r8) (:)   ]  canopy water (mm H2O) (column level)
+         wtr_begwb                  =>    col_ws%wtr_begwb                    & ! Output: [real(r8) (:)   ]  water mass begining of the time step
          )
 
       ! Determine beginning water balance for time step
@@ -93,12 +105,22 @@ contains
       call p2c(bounds, num_nolakec, filter_nolakec, &
             h2ocan_patch(bounds%begp:bounds%endp), &
             h2ocan_col(bounds%begc:bounds%endc))
+      if (use_wtr) then   !Huancui
+         do ntr = 1, nlevwtr 
+            call p2c(bounds, num_nolakec, filter_nolakec, &
+                 wtr_h2ocan_patch(bounds%begp:bounds%endp,ntr), &
+                 wtr_h2ocan_col(bounds%begc:bounds%endc,ntr))
+         end do
+      end if
 
       if (use_var_soil_thick) then
 	       do f = 1, num_hydrologyc
-            c = filter_hydrologyc(f)
-      	    wa(c) = 0._r8                ! Made 0 for variable soil thickness
-	       end do
+                  c = filter_hydrologyc(f)
+      	          wa(c) = 0._r8                ! Made 0 for variable soil thickness
+                  if (use_wtr) then     !Huancui
+                     wtr_wa(c,:)  = 0._r8
+                  end if
+               end do
       end if
 
       do f = 1, num_nolakec
@@ -106,8 +128,18 @@ contains
          if (col_pp%itype(c) == icol_roof .or. col_pp%itype(c) == icol_sunwall &
               .or. col_pp%itype(c) == icol_shadewall .or. col_pp%itype(c) == icol_road_imperv) then
             begwb(c) = h2ocan_col(c) + h2osno(c)
+            if (use_wtr) then !Huancui
+               do ntr = 1, nlevwtr
+                  wtr_begwb(c,ntr) = wtr_h2ocan_col(c,ntr) + wtr_h2osno(c,ntr)
+               end do
+            end if
          else
             begwb(c) = h2ocan_col(c) + h2osno(c) + h2osfc(c) + wa(c)
+            if (use_wtr) then    !Huancui
+               do ntr = 1, nlevwtr
+                  wtr_begwb(c,ntr) = wtr_h2ocan_col(c,ntr) + wtr_h2osno(c,ntr) + wtr_h2osfc(c,ntr) + wtr_wa(c,ntr)
+               end do
+            end if
          end if
 
       end do
@@ -119,6 +151,11 @@ contains
                  .or. col_pp%itype(c) == icol_roof) .and. j > nlevurb) then
             else
                begwb(c) = begwb(c) + h2osoi_ice(c,j) + h2osoi_liq(c,j)
+               if (use_wtr) then   !Huancui
+                  do ntr = 1, nlevwtr
+                     wtr_begwb(c,ntr) = wtr_begwb(c,ntr) + wtr_h2osoi_ice(c,j,ntr) + wtr_h2osoi_liq(c,j,ntr)
+                  end do
+               end if
             end if
          end do
       end do
@@ -133,11 +170,19 @@ contains
       do f = 1, num_nolakec
          c = filter_nolakec(f)
          begwb(c) = begwb(c) + total_plant_stored_h2o(c)
+         if (use_wtr) then    !Huancui
+            do ntr = 1, nlevwtr
+               wtr_begwb(c,ntr) = wtr_begwb(c,ntr) + wtr_total_plant_stored_h2o(c,ntr)
+            end do
+         end if
       end do
 
       do f = 1, num_lakec
          c = filter_lakec(f)
          begwb(c) = h2osno(c)
+         if (use_wtr) then
+            wtr_begwb(c,:) = wtr_h2osno(c,:)
+         end if
       end do
 
     end associate
@@ -778,6 +823,12 @@ contains
     real(r8) :: h2osoi_liq_depth_intg(bounds%begc:bounds%endc)
     real(r8) :: h2osoi_ice_depth_intg(bounds%begc:bounds%endc)
     real(r8) :: wa_local_col(bounds%begc:bounds%endc)
+    real(r8) :: wtr_h2ocan_col(bounds%begc:bounds%endc,1:nlevwtr)              !Huancui
+    real(r8) :: wtr_begwb_col (bounds%begc:bounds%endc,1:nlevwtr)              !Huancui
+    real(r8) :: wtr_h2osoi_liq_depth_intg(bounds%begc:bounds%endc,1:nlevwtr)   !Huancui
+    real(r8) :: wtr_h2osoi_ice_depth_intg(bounds%begc:bounds%endc,1:nlevwtr)   !Huancui
+    real(r8) :: wtr_wa_local_col(bounds%begc:bounds%endc,1:nlevwtr)            !Huancui
+    integer  :: ntr                                                            !Huancui
 
     associate(                                                                        &
          zi                        =>    col_pp%zi                                  , & ! Input:  [real(r8) (:,:) ]  interface level below a "z" level (m)
@@ -798,6 +849,25 @@ contains
          beg_h2osoi_ice_grc        =>    grc_ws%beg_h2osoi_ice         , & ! Output: [real(r8) (:)   ]  grid-level depth integrated ice soil water at begining of the time step (mm)
          h2osoi_liq_depth_intg_col =>    col_ws%h2osoi_liq_depth_intg  , &
          h2osoi_ice_depth_intg_col =>    col_ws%h2osoi_ice_depth_intg    &
+!         if (use_wtr) then      !Huancui
+         , wtr_h2ocan_patch              =>    veg_ws%wtr_h2ocan               , & ! Input:  [real(r8) (:)   ]  canopy water (mm H2O) (pft-level)
+           wtr_h2osfc                    =>    col_ws%wtr_h2osfc                 , & ! Input:  [real(r8) (:)   ]  surface water (mm)
+           wtr_h2osno                    =>    col_ws%wtr_h2osno                 , & ! Input:  [real(r8) (:)   ]  snow water (mm H2O)
+           wtr_h2osoi_ice                =>    col_ws%wtr_h2osoi_ice             , & ! Input:  [real(r8) (:,:) ]  ice lens (kg/m2)
+           wtr_h2osoi_liq                =>    col_ws%wtr_h2osoi_liq             , & ! Input:  [real(r8) (:,:) ]  liquid water (kg/m2)
+           wtr_total_plant_stored_h2o    =>    col_ws%wtr_total_plant_stored_h2o , & ! Input:  [real(r8) (:)   ]  dynamic water stored in plants
+           wtr_zwt                       =>    soilhydrology_vars%wtr_zwt_col                 , & ! Input:  [real(r8) (:)   ]  water table depth (m)
+           wtr_wa                        =>    soilhydrology_vars%wtr_wa_col                  , & ! Output: [real(r8) (:)   ]  water in the unconfined aquifer (mm)
+           wtr_beg_wa_grc                =>    soilhydrology_vars%wtr_beg_wa_grc              , & ! Output: [real(r8) (:)   ]  grid-level water in the unconfined aquifer at begining of the time step (mm)
+           wtr_begwb_grc                 =>    grc_ws%wtr_begwb                  , & ! Output: [real(r8) (:)   ]  grid-level water mass at begining of the time step (mm)
+           wtr_beg_h2ocan_grc            =>    grc_ws%wtr_beg_h2ocan             , & ! Output: [real(r8) (:)   ]  grid-level canopy water at begining of the time step (mm)
+           wtr_beg_h2osno_grc            =>    grc_ws%wtr_beg_h2osno             , & ! Output: [real(r8) (:)   ]  grid-level snow at begining of the time step (mm)
+           wtr_beg_h2osfc_grc            =>    grc_ws%wtr_beg_h2osfc             , & ! Output: [real(r8) (:)   ]  grid-level surface water at begining of the time step (mm)
+           wtr_beg_h2osoi_liq_grc        =>    grc_ws%wtr_beg_h2osoi_liq         , & ! Output: [real(r8) (:)   ]  grid-level depth integrated liquid soil water at begining of the time step (mm)
+           wtr_beg_h2osoi_ice_grc        =>    grc_ws%wtr_beg_h2osoi_ice         , & ! Output: [real(r8) (:)   ]  grid-level depth integrated ice soil water at begining of the time step (mm)
+           wtr_h2osoi_liq_depth_intg_col =>    col_ws%wtr_h2osoi_liq_depth_intg  , &
+           wtr_h2osoi_ice_depth_intg_col =>    col_ws%wtr_h2osoi_ice_depth_intg    &      
+!         end if
          )
 
       ! Set to zero
@@ -807,6 +877,14 @@ contains
       h2osoi_ice_depth_intg(bounds%begc:bounds%endc) = 0._r8
       h2osoi_liq_depth_intg_col(bounds%begc:bounds%endc) = 0._r8
       h2osoi_ice_depth_intg_col(bounds%begc:bounds%endc) = 0._r8
+      if (use_wtr) then    !Huancui
+         wtr_begwb_col (bounds%begc:bounds%endc,:) = 0._r8
+         wtr_h2ocan_col(bounds%begc:bounds%endc,:) = 0._r8
+         wtr_h2osoi_liq_depth_intg(bounds%begc:bounds%endc,:) = 0._r8
+         wtr_h2osoi_ice_depth_intg(bounds%begc:bounds%endc,:) = 0._r8
+         wtr_h2osoi_liq_depth_intg_col(bounds%begc:bounds%endc,:) = 0._r8
+         wtr_h2osoi_ice_depth_intg_col(bounds%begc:bounds%endc,:) = 0._r8
+      end if
 
       ! Determine beginning water balance for time step
       ! pft-level canopy water averaged to column
@@ -817,6 +895,15 @@ contains
 
       wa_local_col(bounds%begc:bounds%endc) = wa(bounds%begc:bounds%endc)
 
+      if (use_wtr) then     !Huancui
+         do ntr = 1, nlevwtr
+            call p2c(bounds, num_nolakec, filter_nolakec, &
+                 wtr_h2ocan_patch(bounds%begp:bounds%endp,ntr), &
+                 wtr_h2ocan_col(bounds%begc:bounds%endc,ntr))
+            wtr_wa_local_col(bounds%begc:bounds%endc,ntr) = wtr_wa(bounds%begc:bounds%endc,ntr)
+         end do
+      end if
+
       do f = 1, num_nolakec
          c = filter_nolakec(f)
          g = col_pp%gridcell(c)
@@ -824,10 +911,25 @@ contains
               .or. col_pp%itype(c) == icol_shadewall .or. col_pp%itype(c) == icol_road_imperv) then
             begwb_col(c) = h2ocan_col(c) + h2osno(c)
             wa_local_col(c) = 0._r8
+            if (use_wtr) then        !Huancui
+               do ntr = 1, nlevwtr
+                  wtr_begwb_col(c,ntr) = wtr_h2ocan_col(c,ntr) + wtr_h2osno(c,ntr)
+               end do
+            end if
          else
             begwb_col(c) = h2ocan_col(c) + h2osno(c) + h2osfc(c) + wa(c)
+            if (use_wtr) then      !Huancui
+               do ntr =1, nlevwtr
+                  wtr_begwb_col(c,ntr) = wtr_h2ocan_col(c,ntr) + wtr_h2osno(c,ntr) + wtr_h2osfc(c,ntr) + wtr_wa(c,ntr)
+               end do
+            end if
          end if
          begwb_col(c) = begwb_col(c) + total_plant_stored_h2o(c)
+         if (use_wtr) then     !Huancui
+            do ntr = 1, nlevwtr
+               wtr_begwb_col(c,ntr) = wtr_begwb_col(c,ntr) + wtr_total_plant_stored_h2o(c,ntr) 
+            end do
+         end if
       end do
 
       do j = 1, nlevgrnd
@@ -839,6 +941,13 @@ contains
                begwb_col(c) = begwb_col(c) + h2osoi_ice(c,j) + h2osoi_liq(c,j)
                h2osoi_liq_depth_intg(c) = h2osoi_liq_depth_intg(c) + h2osoi_liq(c,j)
                h2osoi_ice_depth_intg(c) = h2osoi_ice_depth_intg(c) + h2osoi_ice(c,j)
+               if (use_wtr) then     !Huancui
+                  do ntr = 1, nlevwtr
+                     wtr_begwb_col(c,ntr) = wtr_begwb_col(c,ntr) + wtr_h2osoi_ice(c,j,ntr) + wtr_h2osoi_liq(c,j,ntr)
+                     wtr_h2osoi_liq_depth_intg(c,ntr) = wtr_h2osoi_liq_depth_intg(c,ntr) + wtr_h2osoi_liq(c,j,ntr)
+                     wtr_h2osoi_ice_depth_intg(c,ntr) = wtr_h2osoi_ice_depth_intg(c,ntr) + wtr_h2osoi_ice(c,j,ntr)
+                  end do
+               end if
             end if
          end do
       end do
@@ -846,10 +955,20 @@ contains
       do f = 1, num_lakec
          c = filter_lakec(f)
          begwb_col(c) = h2osno(c)
+         if (use_wtr) then   !Huancui
+            wtr_begwb_col(c,:) = wtr_h2osno(c,:)
+         end if
          do j = 1, nlevgrnd
             begwb_col(c) = begwb_col(c) + h2osoi_ice(c,j) + h2osoi_liq(c,j)
             h2osoi_liq_depth_intg(c) = h2osoi_liq_depth_intg(c) + h2osoi_liq(c,j)
             h2osoi_ice_depth_intg(c) = h2osoi_ice_depth_intg(c) + h2osoi_ice(c,j)
+            if (use_wtr) then   !Huancui
+               do ntr = 1, nlevwtr
+                  wtr_begwb_col(c,ntr) = wtr_begwb_col(c,ntr) + wtr_h2osoi_ice(c,j,ntr) + wtr_h2osoi_liq(c,j,ntr)
+                  wtr_h2osoi_liq_depth_intg(c,ntr) = wtr_h2osoi_liq_depth_intg(c,ntr) + wtr_h2osoi_liq(c,j,ntr)
+                  wtr_h2osoi_ice_depth_intg(c,ntr) = wtr_h2osoi_ice_depth_intg(c,ntr) + wtr_h2osoi_ice(c,j,ntr)
+               end do
+            end if
          enddo
       end do
 
@@ -880,6 +999,38 @@ contains
       call c2g(bounds, h2osoi_ice_depth_intg(bounds%begc:bounds%endc), &
            beg_h2osoi_ice_grc(bounds%begg:bounds%endg), &
            c2l_scale_type= urbanf, l2g_scale_type=unity )
+
+      if (use_wtr) then     !Huancui
+         do ntr = 1, nlevwtr 
+            call c2g(bounds, wtr_begwb_col(bounds%begc:bounds%endc,ntr), &
+                 wtr_begwb_grc(bounds%begg:bounds%endg,ntr), &
+                 c2l_scale_type= urbanf, l2g_scale_type=unity )
+      
+            call c2g(bounds, wtr_wa_local_col(bounds%begc:bounds%endc,ntr), &
+                 wtr_beg_wa_grc(bounds%begg:bounds%endg,ntr), &
+                 c2l_scale_type= urbanf, l2g_scale_type=unity )
+      
+            call c2g(bounds, wtr_h2ocan_col(bounds%begc:bounds%endc,ntr), &
+                 wtr_beg_h2ocan_grc(bounds%begg:bounds%endg,ntr), &
+                 c2l_scale_type= urbanf, l2g_scale_type=unity )
+      
+            call c2g(bounds, wtr_h2osno(bounds%begc:bounds%endc,ntr), &
+                 wtr_beg_h2osno_grc(bounds%begg:bounds%endg,ntr), &
+                 c2l_scale_type= urbanf, l2g_scale_type=unity )
+      
+            call c2g(bounds, wtr_h2osfc(bounds%begc:bounds%endc,ntr), &
+                 wtr_beg_h2osfc_grc(bounds%begg:bounds%endg,ntr), &
+                 c2l_scale_type= urbanf, l2g_scale_type=unity )
+      
+            call c2g(bounds, wtr_h2osoi_liq_depth_intg(bounds%begc:bounds%endc,ntr), &
+                 wtr_beg_h2osoi_liq_grc(bounds%begg:bounds%endg,ntr), &
+                 c2l_scale_type= urbanf, l2g_scale_type=unity )
+      
+            call c2g(bounds, wtr_h2osoi_ice_depth_intg(bounds%begc:bounds%endc,ntr), &
+                 wtr_beg_h2osoi_ice_grc(bounds%begg:bounds%endg,ntr), &
+                 c2l_scale_type= urbanf, l2g_scale_type=unity )
+         end do
+      end if
 
     end associate
 

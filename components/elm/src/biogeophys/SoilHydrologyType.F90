@@ -9,6 +9,7 @@ Module SoilHydrologyType
   use elm_varpar            , only : more_vertlayers, nlevsoifl, toplev_equalspace
   use elm_varcon            , only : zsoi, dzsoi, zisoi, spval
   use elm_varctl            , only : iulog, use_lnd_rof_two_way
+  use elm_varctl            , only : use_wtr, nlevwtr
   use SharedParamsMod     , only : ParamsShareInst
   use LandunitType          , only : lun_pp                
   use ColumnType            , only : col_pp      
@@ -67,7 +68,20 @@ Module SoilHydrologyType
      real(r8), pointer :: ice_col           (:,:)   => null()! col VIC soil ice (kg/m2) for VIC soil layers
      real(r8), pointer :: fover             (:)     => null()! decay factor for surface runoff
      real(r8), pointer :: pc                (:)     => null()! surface water threshold probability
-     
+    
+     !-----Huancui: water tracer variables-----
+     real(r8), pointer :: wtr_frost_table_col   (:,:)    => null() ! tracer col frost table depth
+     real(r8), pointer :: wtr_zwt_col           (:,:)    => null() ! tracer col water table depth
+     real(r8), pointer :: wtr_zwts_col          (:,:)    => null() ! tracer col water table depth, the shallower of the two water depths
+     real(r8), pointer :: wtr_zwt_perched_col   (:,:)    => null() ! tracer col perched water table depth
+     real(r8), pointer :: wtr_wa_col            (:,:)    => null() ! tracer col water in the unconfined aquifer (mm)
+     real(r8), pointer :: wtr_beg_wa_grc        (:,:)    => null() ! tracer grid-level water in the unconfined aquifer at beginning of the time step (mm)
+     real(r8), pointer :: wtr_end_wa_grc        (:,:)    => null() ! tracer grid-level water in the unconfined aquifer at end of the time step (mm)
+     real(r8), pointer :: wtr_qflx_bot_col      (:,:)    => null()
+     real(r8), pointer :: wtr_qcharge_col       (:,:)    => null() ! tracer col aquifer recharge rate (mm/s)
+     real(r8), pointer :: wtr_moist_col         (:,:,:)   => null()! tracer col VIC soil moisture (kg/m2) for VIC soil layers
+     real(r8), pointer :: wtr_moist_vol_col     (:,:,:)   => null()! tracer col VIC volumetric soil moisture for VIC soil layere
+     !-----end water tracer vars--------------- 
    contains
 
      procedure, public  :: Init
@@ -160,6 +174,19 @@ contains
     allocate(this%fover             (begg:endg))                 ; this%fover             (:)     = spval
     allocate(this%pc                (begg:endg))                 ; this%pc                (:)     = spval
 
+    if (use_wtr) then    !Huancui
+       allocate(this%wtr_frost_table_col   (begc:endc,1:nlevwtr))                 ; this%wtr_frost_table_col   (:,:)     = 0.0_r8
+       allocate(this%wtr_zwt_col           (begc:endc,1:nlevwtr))                 ; this%wtr_zwt_col           (:,:)     = 0.0_r8
+       allocate(this%wtr_qflx_bot_col      (begc:endc,1:nlevwtr))                 ; this%wtr_qflx_bot_col      (:,:)     = 0.0_r8
+       allocate(this%wtr_zwt_perched_col   (begc:endc,1:nlevwtr))                 ; this%wtr_zwt_perched_col   (:,:)     = 0.0_r8
+       allocate(this%wtr_zwts_col          (begc:endc,1:nlevwtr))                 ; this%wtr_zwts_col          (:,:)     = 0.0_r8
+       allocate(this%wtr_wa_col            (begc:endc,1:nlevwtr))                 ; this%wtr_wa_col            (:,:)     = 0.0_r8
+       allocate(this%wtr_beg_wa_grc        (begg:endg,1:nlevwtr))                 ; this%wtr_beg_wa_grc        (:,:)     = 0.0_r8
+       allocate(this%wtr_end_wa_grc        (begg:endg,1:nlevwtr))                 ; this%wtr_end_wa_grc        (:,:)     = 0.0_r8
+       allocate(this%wtr_qcharge_col       (begc:endc,1:nlevwtr))                 ; this%wtr_qcharge_col       (:,:)     = 0.0_r8
+       allocate(this%wtr_moist_col         (begc:endc,nlayert,1:nlevwtr))         ; this%wtr_moist_col         (:,:,:)   = 0.0_r8
+       allocate(this%wtr_moist_vol_col     (begc:endc,nlayert,1:nlevwtr))         ; this%wtr_moist_vol_col     (:,:,:)   = 0.0_r8
+    end if
   end subroutine InitAllocate
 
   !------------------------------------------------------------------------
@@ -179,6 +206,9 @@ contains
     integer           :: begp, endp
     integer           :: begc, endc
     integer           :: begg, endg
+    integer             :: ilev_wtr
+    character(len=32)   :: wtr_vsuffix
+    real(r8), pointer   :: data1dptr(:) ! temp. pointers for slicing larger arrays
     !------------------------------------------------------------------------
 
     begp = bounds%begp; endp= bounds%endp
@@ -219,6 +249,60 @@ contains
     call hist_addfld1d (fname='ZWT_PERCH',  units='m',  &
          avgflag='A', long_name='perched water table depth (vegetated landunits only)', &
          ptr_col=this%zwt_perched_col, l2g_scale_type='veg')
+
+    if (use_wtr) then       !Huancui
+       this%wtr_wa_col(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_wa_col(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_WA_'//trim(wtr_vsuffix),  units='mm',  &
+               avgflag='A', long_name='tracer water in the unconfined aquifer (vegetated landunits only) species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr, l2g_scale_type='veg')
+       end do
+
+       this%wtr_qcharge_col(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qcharge_col(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QCHARGE_'//trim(wtr_vsuffix),  units='mm/s',  &
+               avgflag='A', long_name='tracer aquifer recharge rate (vegetated landunits only) species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr, l2g_scale_type='veg')
+       end do
+
+       this%wtr_zwt_col(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_zwt_col(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_ZWT_'//trim(wtr_vsuffix),  units='m',  &
+               avgflag='A', long_name='tracer water table depth (vegetated landunits only) species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr, l2g_scale_type='veg')
+       end do
+
+       this%wtr_zwt_perched_col(begc:endc,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_zwt_perched_col(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_ZWT_PERCH_'//trim(wtr_vsuffix),  units='m',  &
+               avgflag='A', long_name='tracer perched water table depth (vegetated landunits only) species #'//trim(wtr_vsuffix), &
+               ptr_col=data1dptr, l2g_scale_type='veg')
+       end do
+    end if
 
   end subroutine InitHistory
 
@@ -285,6 +369,11 @@ contains
     this%wa_col(bounds%begc:bounds%endc)  = 5000._r8
     this%zwt_col(bounds%begc:bounds%endc) = 0._r8
 
+    if (use_wtr) then     !Huancui
+       this%wtr_wa_col(bounds%begc:bounds%endc,:)  = 0._r8
+       this%wtr_zwt_col(bounds%begc:bounds%endc,:) = 0._r8
+    end if
+
     if (use_var_soil_thick) then
        do c = bounds%begc,bounds%endc
           l = col_pp%landunit(c)
@@ -335,6 +424,12 @@ contains
              end if
           end if
        end do
+    end if
+    if (use_wtr) then    !Huancui
+       this%wtr_wa_col(bounds%begc:bounds%endc, 1)  = this%wa_col(bounds%begc:bounds%endc)
+       this%wtr_zwt_col(bounds%begc:bounds%endc,1) = this%zwt_col(bounds%begc:bounds%endc)
+       this%wtr_zwt_perched_col(bounds%begc:bounds%endc,1) = this%zwt_perched_col(bounds%begc:bounds%endc)
+       this%wtr_frost_table_col(bounds%begc:bounds%endc,1) = this%frost_table_col(bounds%begc:bounds%endc)
     end if
 
     ! Initialize VIC variables
@@ -415,6 +510,12 @@ contains
              om_fraccol(c,lev)         = spval
           end do
        end do
+       if (use_wtr) then    !Huancui
+          this%wtr_moist_col(bounds%begc:bounds%endc,1:nlayer,:)     = spval
+          this%wtr_moist_vol_col(bounds%begc:bounds%endc,1:nlayer,:) = spval
+          this%wtr_moist_col(bounds%begc:bounds%endc,1:nlayer,1)     = this%moist_col(bounds%begc:bounds%endc,1:nlayer)
+          this%wtr_moist_vol_col(bounds%begc:bounds%endc,1:nlayer,1) = this%moist_vol_col(bounds%begc:bounds%endc,1:nlayer)
+       end if
 
        allocate(sand3d(bounds%begg:bounds%endg,max_topounits,nlevsoifl))
        allocate(clay3d(bounds%begg:bounds%endg,max_topounits,nlevsoifl))

@@ -17,6 +17,7 @@ module GridcellDataType
   use ColumnType        , only : col_pp
   use LandunitType      , only : lun_pp
   use GridcellType      , only : grc_pp
+  use elm_varctl        , only : use_wtr, nlevwtr       !Huancui
   !
   ! !PUBLIC TYPES:
   implicit none
@@ -76,6 +77,28 @@ module GridcellDataType
     real(r8), pointer :: end_h2osoi_liq     (:)   ! grid-level liquid water at end of the time step (kg/m2)
     real(r8), pointer :: end_h2osoi_ice     (:)   ! grid-level ice lens at end of the time step (kg/m2)
 
+    !-----Huancui: water tracer variables-----
+    real(r8), pointer :: wtr_liq1               (:,:)   ! tracer initial gridcell total h2o liq content (kg/m2)
+    real(r8), pointer :: wtr_liq2               (:,:)   ! tracer post land cover change total liq content (kg/m2)
+    real(r8), pointer :: wtr_ice1               (:,:)   ! tracer initial gridcell total h2o ice content (kg/m2)
+    real(r8), pointer :: wtr_ice2               (:,:)   ! tracer post land cover change total ice content (kg/m2)
+    real(r8), pointer :: wtr_tws                (:,:)   ! tracer total water storage (kg/m2)
+    real(r8), pointer :: wtr_tws_month_beg      (:,:)   ! tracer grc total water storage at the beginning of a month
+    real(r8), pointer :: wtr_tws_month_end      (:,:)   ! tracer grc total water storage at the end of a month
+    real(r8), pointer :: wtr_begwb              (:,:)   ! tracer water mass begining of the time step
+    real(r8), pointer :: wtr_endwb              (:,:)   ! tracer water mass end of the time step
+    real(r8), pointer :: wtr_errh2o             (:,:)   ! tracer water conservation error (mm H2O)
+    real(r8), pointer :: wtr_beg_h2ocan         (:,:)   ! tracer grid-level canopy water at begining of the time step (mm H2O)
+    real(r8), pointer :: wtr_beg_h2osno         (:,:)   ! tracer grid-level snow water at begining of the time step (mm H2O)
+    real(r8), pointer :: wtr_beg_h2osfc         (:,:)   ! tracer grid-level surface water at begining of the time step (mm H2O)
+    real(r8), pointer :: wtr_beg_h2osoi_liq     (:,:)   ! tracer grid-level liquid water at begining of the time step (kg/m2)
+    real(r8), pointer :: wtr_beg_h2osoi_ice     (:,:)   ! tracer grid-level ice lens at begining of the time step (kg/m2)
+    real(r8), pointer :: wtr_end_h2ocan         (:,:)   ! tracer grid-level canopy water at end of the time step (mm H2O)
+    real(r8), pointer :: wtr_end_h2osno         (:,:)   ! tracer grid-level snow water at end of the time step (mm H2O)
+    real(r8), pointer :: wtr_end_h2osfc         (:,:)   ! tracer grid-level surface water at end of the time step (mm H2O)
+    real(r8), pointer :: wtr_end_h2osoi_liq     (:,:)   ! tracer grid-level liquid water at end of the time step (kg/m2)
+    real(r8), pointer :: wtr_end_h2osoi_ice     (:,:)   ! tracer grid-level ice lens at end of the time step (kg/m2)
+    !-----end water tracer vars---------------
   contains
     procedure, public :: Init    => grc_ws_init
     procedure, public :: Restart => grc_ws_restart
@@ -94,6 +117,11 @@ module GridcellDataType
     ! that are dribbled throughout the year
     type(annual_flux_dribbler_type) :: qflx_liq_dynbal_dribbler
     type(annual_flux_dribbler_type) :: qflx_ice_dynbal_dribbler
+
+    !-----Huancui: water tracer variables------
+    real(r8), pointer :: wtr_qflx_liq_dynbal      (:,:)   ! tracer liq dynamic land cover change conversion runoff flux
+    real(r8), pointer :: wtr_qflx_ice_dynbal      (:,:)   ! tracer ice dynamic land cover change conversion runoff flux
+    !-----end water tracer vars----------------
 
   contains
     procedure, public :: Init    => grc_wf_init
@@ -359,6 +387,10 @@ contains
     ! !ARGUMENTS:
     class(gridcell_water_state) :: this
     integer, intent(in) :: begg,endg
+    ! ! local vars
+    integer             :: ilev_wtr
+    character(len=32)   :: wtr_vsuffix
+    real(r8), pointer   :: data1dptr(:) ! temp. pointers for slicing larger arrays
     !------------------------------------------------------------------------
 
     !-----------------------------------------------------------------------
@@ -384,6 +416,28 @@ contains
     allocate(this%end_h2osfc     (begg:endg))       ; this%end_h2osfc     (:)   = spval
     allocate(this%end_h2osoi_liq (begg:endg))       ; this%end_h2osoi_liq (:)   = spval
     allocate(this%end_h2osoi_ice (begg:endg))       ; this%end_h2osoi_ice (:)   = spval
+    if (use_wtr) then   !Huancui
+       allocate(this%wtr_liq1           (begg:endg,1:nlevwtr))       ; this%wtr_liq1           (:,:)   = spval
+       allocate(this%wtr_liq2           (begg:endg,1:nlevwtr))       ; this%wtr_liq2           (:,:)   = spval
+       allocate(this%wtr_ice1           (begg:endg,1:nlevwtr))       ; this%wtr_ice1           (:,:)   = spval
+       allocate(this%wtr_ice2           (begg:endg,1:nlevwtr))       ; this%wtr_ice2           (:,:)   = spval
+       allocate(this%wtr_tws            (begg:endg,1:nlevwtr))       ; this%wtr_tws            (:,:)   = spval
+       allocate(this%wtr_tws_month_beg  (begg:endg,1:nlevwtr))       ; this%wtr_tws_month_beg  (:,:)   = spval
+       allocate(this%wtr_tws_month_end  (begg:endg,1:nlevwtr))       ; this%wtr_tws_month_end  (:,:)   = spval
+       allocate(this%wtr_begwb          (begg:endg,1:nlevwtr))       ; this%wtr_begwb          (:,:)   = spval
+       allocate(this%wtr_endwb          (begg:endg,1:nlevwtr))       ; this%wtr_endwb          (:,:)   = spval
+       allocate(this%wtr_errh2o         (begg:endg,1:nlevwtr))       ; this%wtr_errh2o         (:,:)   = spval
+       allocate(this%wtr_beg_h2ocan     (begg:endg,1:nlevwtr))       ; this%wtr_beg_h2ocan     (:,:)   = spval
+       allocate(this%wtr_beg_h2osno     (begg:endg,1:nlevwtr))       ; this%wtr_beg_h2osno     (:,:)   = spval
+       allocate(this%wtr_beg_h2osfc     (begg:endg,1:nlevwtr))       ; this%wtr_beg_h2osfc     (:,:)   = spval
+       allocate(this%wtr_beg_h2osoi_liq (begg:endg,1:nlevwtr))       ; this%wtr_beg_h2osoi_liq (:,:)   = spval
+       allocate(this%wtr_beg_h2osoi_ice (begg:endg,1:nlevwtr))       ; this%wtr_beg_h2osoi_ice (:,:)   = spval
+       allocate(this%wtr_end_h2ocan     (begg:endg,1:nlevwtr))       ; this%wtr_end_h2ocan     (:,:)   = spval
+       allocate(this%wtr_end_h2osno     (begg:endg,1:nlevwtr))       ; this%wtr_end_h2osno     (:,:)   = spval
+       allocate(this%wtr_end_h2osfc     (begg:endg,1:nlevwtr))       ; this%wtr_end_h2osfc     (:,:)   = spval
+       allocate(this%wtr_end_h2osoi_liq (begg:endg,1:nlevwtr))       ; this%wtr_end_h2osoi_liq (:,:)   = spval
+       allocate(this%wtr_end_h2osoi_ice (begg:endg,1:nlevwtr))       ; this%wtr_end_h2osoi_ice (:,:)   = spval
+    end if
 
     !-----------------------------------------------------------------------
     ! initialize history fields for select members of grc_ws
@@ -422,6 +476,99 @@ contains
     call hist_addfld1d (fname='TWS_MONTH_END',  units='mm',  &
          avgflag='I', long_name='total water storage at the end of a month', &
          ptr_lnd=this%tws_month_end)
+
+    if (use_wtr) then  !Huancui
+       this%wtr_liq1(begg:endg,:)    = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_liq1(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_GC_LIQ1_'//trim(wtr_vsuffix),  units='mm',  &
+               avgflag='A', long_name='initial gridcell tracer liq content species #'//trim(wtr_vsuffix), &
+               ptr_lnd=data1dptr)
+       end do
+
+       this%wtr_liq2(begg:endg,:)    = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_liq2(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_GC_LIQ2_'//trim(wtr_vsuffix),  units='mm',  &
+               avgflag='A', long_name='post landuse change gridcell tracer liq content species #'//trim(wtr_vsuffix), &
+               ptr_lnd=data1dptr, default='inactive')
+       end do
+
+       this%wtr_ice1(begg:endg,:)    = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_ice1(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_GC_ICE1_'//trim(wtr_vsuffix),  units='mm',  &
+               avgflag='A', long_name='initial gridcell tracer ice content species #'//trim(wtr_vsuffix), &
+               ptr_lnd=data1dptr)
+       end do
+
+       this%wtr_ice2(begg:endg,:)    = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_ice2(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_GC_ICE2_'//trim(wtr_vsuffix),  units='mm',  &
+               avgflag='A', long_name='post landuse change gridcell tracer ice content species #'//trim(wtr_vsuffix), &
+               ptr_lnd=data1dptr, default='inactive')
+       end do
+
+       this%wtr_tws(begg:endg,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_tws(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_TWS_'//trim(wtr_vsuffix),  units='mm',  &
+               avgflag='A', long_name='tracer water storage species #'//trim(wtr_vsuffix), &
+               ptr_lnd=data1dptr)
+       end do
+
+       this%wtr_tws_month_beg(begg:endg,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_tws_month_beg(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_TWS_MONTH_BEGIN_'//trim(wtr_vsuffix),  units='mm',  &
+               avgflag='I', long_name='tracer water storage at the beginning of a month species #'//trim(wtr_vsuffix), &
+               ptr_lnd=data1dptr)
+       end do
+
+       this%wtr_tws_month_end(begg:endg,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_tws_month_end(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_TWS_MONTH_END_'//trim(wtr_vsuffix),  units='mm',  &
+                  avgflag='I', long_name='tracer water storage at the end of a month species #'//trim(wtr_vsuffix), &
+               ptr_lnd=data1dptr)
+       end do
+    end if
   end subroutine grc_ws_init
 
   !------------------------------------------------------------------------
@@ -459,6 +606,13 @@ contains
     deallocate(this%ice1)
     deallocate(this%ice2)
     deallocate(this%tws )
+    if (use_wtr) then    !Huancui
+       deallocate(this%wtr_liq1)
+       deallocate(this%wtr_liq2)
+       deallocate(this%wtr_ice1)
+       deallocate(this%wtr_ice2)
+       deallocate(this%wtr_tws )
+    end if
   end subroutine grc_ws_clean
 
   !------------------------------------------------------------------------
@@ -470,6 +624,10 @@ contains
     class(gridcell_water_flux) :: this
     integer, intent(in) :: begg,endg
     type(bounds_type)    , intent(in)  :: bounds
+    ! local vars
+    integer             :: ilev_wtr
+    character(len=32)   :: wtr_vsuffix
+    real(r8), pointer   :: data1dptr(:) ! temp. pointers for slicing larger arrays
     !------------------------------------------------------------------------
 
     !-----------------------------------------------------------------------
@@ -477,6 +635,10 @@ contains
     !-----------------------------------------------------------------------
     allocate(this%qflx_liq_dynbal      (begg:endg))              ; this%qflx_liq_dynbal      (:)   = spval
     allocate(this%qflx_ice_dynbal      (begg:endg))              ; this%qflx_ice_dynbal      (:)   = spval
+    if (use_wtr) then !Huancui
+       allocate(this%wtr_qflx_liq_dynbal      (begg:endg,1:nlevwtr))              ; this%wtr_qflx_liq_dynbal      (:,:)   = 0._r8
+       allocate(this%wtr_qflx_ice_dynbal      (begg:endg,1:nlevwtr))              ; this%wtr_qflx_ice_dynbal      (:,:)   = 0._r8
+    end if
 
     this%qflx_liq_dynbal_dribbler = annual_flux_dribbler_gridcell( &
          bounds = bounds, &
@@ -500,6 +662,34 @@ contains
     call hist_addfld1d (fname='QFLX_ICE_DYNBAL',  units='mm/s',  &
          avgflag='A', long_name='ice dynamic land cover change conversion runoff flux', &                                   
          ptr_lnd=this%qflx_ice_dynbal)
+
+    if (use_wtr) then    !Huancui
+       this%wtr_qflx_liq_dynbal(begg:endg,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_liq_dynbal(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QFLX_LIQ_DYNBAL_'//trim(wtr_vsuffix),  units='mm/s',  &
+               avgflag='A', long_name='tracer liq dynamic land cover change conversion runoff flux species #'//trim(wtr_vsuffix), &
+               ptr_lnd=data1dptr)
+       end do
+
+       this%wtr_qflx_ice_dynbal(begg:endg,:) = spval
+       do ilev_wtr = 1,nlevwtr
+          data1dptr => this%wtr_qflx_liq_dynbal(:,ilev_wtr)
+          if (nlevwtr < 10) then
+            write(wtr_vsuffix, '(I1)') ilev_wtr
+          else
+            write(wtr_vsuffix, '(I2.2)') ilev_wtr
+          end if
+          call hist_addfld1d (fname='WTR_QFLX_ICE_DYNBAL_'//trim(wtr_vsuffix),  units='mm/s',  &
+               avgflag='A', long_name='tracer ice dynamic land cover change conversion runoff flux species #'//trim(wtr_vsuffix), &
+               ptr_lnd=data1dptr)
+       end do
+    end if
   
   end subroutine grc_wf_init
 
@@ -532,6 +722,10 @@ contains
     !------------------------------------------------------------------------
     deallocate(this%qflx_liq_dynbal)
     deallocate(this%qflx_ice_dynbal)
+    if (use_wtr) then    !Huancui
+       deallocate(this%wtr_qflx_liq_dynbal)
+       deallocate(this%wtr_qflx_ice_dynbal)
+    end if
 
   end subroutine grc_wf_clean
 

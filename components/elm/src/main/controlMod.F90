@@ -55,6 +55,8 @@ module controlMod
   use elm_varctl              , only: const_climate_hist
   use elm_varctl              , only: use_top_solar_rad
   use elm_varctl              , only: snow_shape, snicar_atm_type, use_dust_snow_internal_mixing
+  use elm_varctl              , only: use_wtr, nlevwtr                    !Huancui
+  use elm_varctl              , only: wtr_tag_starttime, wtr_tag_endtime  !Huancui
 
   !
   ! !PUBLIC TYPES:
@@ -222,6 +224,12 @@ contains
          glcmec_downscale_longwave, glc_snow_persistence_max_days, glc_grid, fglcmask
 
     ! Other options
+
+    !----Huancui water tracer capability-----
+    namelist /elm_inparm/  &
+         use_wtr, nlevwtr, wtr_tag_starttime, wtr_tag_endtime
+
+    !----end water tracer capability------
 
     namelist /elm_inparm/  &
          clump_pproc, wrtdia, &
@@ -744,6 +752,15 @@ contains
     call mpi_bcast (fan_to_bgc_veg, 1, MPI_LOGICAL, 0, mpicom, ier)
     call mpi_bcast (nh4_ads_coef, 1, MPI_REAL8, 0, mpicom, ier)
 
+    !----Huancui: water tracer capability------
+    call mpi_bcast (use_wtr, 1, MPI_LOGICAL, 0, mpicom, ier)
+    if (use_wtr) then
+      call mpi_bcast (nlevwtr, 1, MPI_INTEGER, 0, mpicom, ier)
+      call mpi_bcast (wtr_tag_starttime, max_namlen*size(wtr_tag_starttime), MPI_CHARACTER, 0, mpicom, ier)
+      call mpi_bcast (wtr_tag_endtime,   max_namlen*size(wtr_tag_endtime), MPI_CHARACTER, 0, mpicom, ier)
+    end if
+    !----end of water tracer capability-------
+
     ! initial file variables
     call mpi_bcast (nrevsn, len(nrevsn), MPI_CHARACTER, 0, mpicom, ier)
     call mpi_bcast (finidat, len(finidat), MPI_CHARACTER, 0, mpicom, ier)
@@ -1079,7 +1096,18 @@ contains
     else
         write(iulog,*) '   use_top_solar_rad is False, so do not run TOP solar radiation parameterization'
     end if
-    
+    !-----Huancui: water tracer capability-----
+    if (use_wtr) then
+      write(iulog,*) '    use_wtr = ', use_wtr
+      write(iulog,*) '    nlevwtr = ', nlevwtr
+      write(iulog,*) '    wtr_tag_starttime = ', wtr_tag_starttime
+      write(iulog,*) '    wtr_tag_endtime = ', wtr_tag_endtime
+      !add other variables later
+    else
+      write(iulog,*) '    use_wtr = ', use_wtr
+    end if
+    !-----end water tracer capability
+
     if (use_cn) then
        if (suplnitro /= suplnNon)then
           write(iulog,*) '   Supplemental Nitrogen mode is set to run over Patches: ', &

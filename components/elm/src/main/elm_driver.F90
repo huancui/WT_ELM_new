@@ -176,6 +176,8 @@ module elm_driver
   use CNPBudgetMod                , only : CNPBudget_SetBeginningMonthlyStates, CNPBudget_SetEndingMonthlyStates
   use elm_varctl                  , only : do_budgets, budget_inst, budget_daily, budget_month
   use elm_varctl                  , only : budget_ann, budget_ltann, budget_ltend
+  use elm_varctl                  , only : use_wtr, nlevwtr                      !Huancui
+  use elm_varctl                  , only : wtr_tag_starttime, wtr_tag_endtime    !Huancui
 
   use timeinfoMod
   !
@@ -238,11 +240,30 @@ contains
     character(len=256)   :: dateTimeString
     type(bounds_type)    :: bounds_clump
     type(bounds_type)    :: bounds_proc
+    integer              :: ntr                     ! Huancui
+    real(r8)             :: wtr_ratio(1:nlevwtr)    ! Huancui, water tagging ratios (-1:not valid, 0:no tagging, 1:tagging)
     !-----------------------------------------------------------------------
 
     call get_curr_time_string(dateTimeString)
+
+    if (use_wtr) then    !Huancui
+       wtr_ratio(:)    = -1.0
+       wtr_ratio(1)    =  1.0
+       do ntr = 2, nlevwtr
+          if (wtr_tag_starttime(ntr-1) .ne. '') then
+             wtr_ratio(ntr)    = 0.0 
+             if ((trim(dateTimeString) .ge. trim(wtr_tag_starttime(ntr-1))) .and. (trim(dateTimeString) .le. trim(wtr_tag_endtime(ntr-1)))) then
+                wtr_ratio(ntr)  = 1.0
+             end if
+          end if
+       end do  
+    end if
+
     if (masterproc) then
        write(iulog,*)'Beginning timestep   : ',trim(dateTimeString)
+       if (use_wtr) then    !Huancui
+          write(iulog,*)'wtr_ratio: ',wtr_ratio(1:nlevwtr)
+       end if
        call shr_sys_flush(iulog)
     endif
     ! Determine processor bounds and clumps for this processor
@@ -701,7 +722,8 @@ contains
             filter(nc)%num_nolakec, filter(nc)%nolakec, &
             filter(nc)%num_nolakep, filter(nc)%nolakep, &
             atm2lnd_vars, canopystate_vars, &
-            aerosol_vars )
+            aerosol_vars                    &
+            ,wtr_ratio )     !Huancui
        call t_stopf('canhydro')
 
        ! ============================================================================
@@ -1608,6 +1630,12 @@ contains
 
          cisun_z            => photosyns_vars%cisun_z_patch              , & ! Output: [real(r8) (:)   ]  intracellular sunlit leaf CO2 (Pa)
          cisha_z            => photosyns_vars%cisha_z_patch                & ! Output: [real(r8) (:)   ]  intracellular shaded leaf CO2 (Pa)
+         !------Huancui: water tracer variables------
+        ,wtr_h2osno             => col_ws%wtr_h2osno                , & ! Input:  [real(r8) (:,:)   ]  tracer snow water (mm H2O)
+         wtr_h2osoi_ice         => col_ws%wtr_h2osoi_ice            , & ! Input:  [real(r8) (:,:,:) ]  tracer ice lens (kg/m2)
+         wtr_h2osoi_liq         => col_ws%wtr_h2osoi_liq            , & ! Input:  [real(r8) (:,:,:) ]  tracer liquid water (kg/m2)
+         wtr_h2osno_old         => col_ws%wtr_h2osno_old            , & ! Output: [real(r8) (:,:)   ]  tracer snow water (mm H2O) at previous time step
+         wtr_qflx_glcice        => col_wf%wtr_qflx_glcice             & ! Output: [real(r8) (:,:)   ]  tracer flux of new glacier ice (mm H2O/s) [+ = ice grows]
          )
 
       ! Initialize intracellular CO2 (Pa) parameters each timestep for use in VOCEmission
@@ -1621,6 +1649,9 @@ contains
 
          ! Save snow mass at previous time step
          h2osno_old(c) = h2osno(c)
+         if (use_wtr) then    !Huancui
+            wtr_h2osno_old(c,:) = wtr_h2osno(c,:)
+         end if 
 
          if (.not. use_firn_percolation_and_compaction) then
             ! Decide whether to cap snow
@@ -1637,6 +1668,9 @@ contains
 
          ! Initialize qflx_glcice everywhere, to zero.
          qflx_glcice(c) = 0._r8
+         if (use_wtr) then    !Huancui
+            wtr_qflx_glcice(c,:) = 0._r8
+         end if
 
       end do
 

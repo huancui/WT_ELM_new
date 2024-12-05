@@ -286,6 +286,8 @@
       <arg flag="--time" name="$JOB_WALLCLOCK_TIME"/>
       <arg flag="-q" name="$JOB_QUEUE"/>
       <arg flag="--account" name="$PROJECT"/>
+      <arg flag="--mail-user" name="$ENV{USER_MAIL}"/>
+      <arg flag="--mail-type" name="$ENV{MAIL_TYPE}"/>
     </submit_args>
     <directives>
       <directive> --job-name={{ job_id }}</directive>
@@ -340,6 +342,8 @@
       <arg flag="--time" name="$JOB_WALLCLOCK_TIME"/>
       <arg flag="-p" name="$JOB_QUEUE"/>
       <arg flag="--account" name="$PROJECT"/>
+      <arg flag="--mail-user" name="$ENV{USER_MAIL}"/>
+      <arg flag="--mail-type" name="$ENV{MAIL_TYPE}"/>
     </submit_args>
     <directives>
       <directive> --job-name={{ job_id }}</directive>

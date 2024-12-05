@@ -15,6 +15,7 @@ module LandunitDataType
   use decompMod      , only : bounds_type
   use restUtilMod
   use LandunitType   , only : lun_pp
+  use elm_varctl     , only : use_wtr, nlevwtr     !Huancui
   !
   ! !PUBLIC TYPES:
   implicit none
@@ -55,6 +56,7 @@ module LandunitDataType
   type, public :: landunit_water_state
     ! temperature variables
     real(r8), pointer :: qaf               (:)   ! urban canopy air specific humidity (kg H2O/kg moist air)
+    real(r8), pointer :: wtr_qaf           (:,:) ! tracer urban canopy air specific humidity (kg H2O/kg moist air)
 
   contains
     procedure, public :: Init    => lun_ws_init
@@ -212,6 +214,9 @@ contains
     ! allocate for each member of lun_ws
     !-----------------------------------------------------------------------
     allocate(this%qaf          (begl:endl))               ; this%qaf         (:)   = spval
+    if (use_wtr) then       !Huancui
+       allocate(this%wtr_qaf      (begl:endl,1:nlevwtr))     ; this%wtr_qaf     (:,:) = spval
+    end if
 
     !-----------------------------------------------------------------------
     ! cold-start initial conditions for lun_ws
@@ -227,6 +232,9 @@ contains
           end if
        end if
     end do
+    if (use_wtr) then    !Huancui
+       this%wtr_qaf(:,:) = 0._r8
+    end if
 
   end subroutine lun_ws_init
 
@@ -261,6 +269,9 @@ contains
     class(landunit_water_state) :: this
     !------------------------------------------------------------------------
     deallocate(this%qaf)
+    if (use_wtr) then    !Huancui
+       deallocate(this%wtr_qaf)
+    end if
 
   end subroutine lun_ws_clean
 

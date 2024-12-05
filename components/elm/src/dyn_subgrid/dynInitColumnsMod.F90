@@ -18,6 +18,7 @@ module dynInitColumnsMod
   use LandunitType      , only : lun_pp
   use ColumnType        , only : col_pp
   use ColumnDataType    , only : col_es, col_ws
+  use elm_varctl        , only : use_wtr, nlevwtr
   !
   ! !PUBLIC MEMBER FUNCTIONS:
   implicit none
@@ -286,6 +287,14 @@ contains
     col_ws%h2osoi_vol(c_new,1:) = col_ws%h2osoi_vol(c_template,1:)
 
     soilhydrology_vars%wa_col(c_new) = soilhydrology_vars%wa_col(c_template)
+
+    if (use_wtr) then    !Huancui
+       col_ws%wtr_h2osoi_liq(c_new,1:,1:nlevwtr) = col_ws%wtr_h2osoi_liq(c_template,1:,1:nlevwtr)
+       col_ws%wtr_h2osoi_ice(c_new,1:,1:nlevwtr) = col_ws%wtr_h2osoi_ice(c_template,1:,1:nlevwtr)
+       col_ws%wtr_h2osoi_vol(c_new,1:,1:nlevwtr) = col_ws%wtr_h2osoi_vol(c_template,1:,1:nlevwtr)
+
+      soilhydrology_vars%wtr_wa_col(c_new,1:nlevwtr) = soilhydrology_vars%wtr_wa_col(c_template,1:nlevwtr)
+    end if
 
    end subroutine copy_state
 

@@ -24,6 +24,7 @@ module TotalWaterAndHeatMod
   use ColumnDataType     , only : col_es, col_ws
   use VegetationType     , only : veg_pp
   use VegetationDataType , only : veg_ws
+  use elm_varctl         , only : use_wtr, nlevwtr
   !
   ! !PUBLIC TYPES:
   implicit none
@@ -101,6 +102,8 @@ contains
     real(r8) :: liquid_mass(bounds%begc:bounds%endc)  ! kg m-2
     real(r8) :: ice_mass(bounds%begc:bounds%endc)     ! kg m-2
     integer  :: fc, c
+    real(r8) :: wtr_liquid_mass(bounds%begc:bounds%endc,1:nlevwtr)  ! kg m-2
+    real(r8) :: wtr_ice_mass(bounds%begc:bounds%endc,1:nlevwtr)     ! kg m-2
 
     character(len=*), parameter :: subname = 'ComputeWaterMassNonLake'
     !-----------------------------------------------------------------------
@@ -112,11 +115,18 @@ contains
          filter_nolakec = filter_nolakec, &
          soilhydrology_inst = soilhydrology_inst, &
          liquid_mass = liquid_mass(bounds%begc:bounds%endc), &
-         ice_mass = ice_mass(bounds%begc:bounds%endc))
+         ice_mass = ice_mass(bounds%begc:bounds%endc) &
+         ,wtr_liquid_mass = wtr_liquid_mass(bounds%begc:bounds%endc,1:nlevwtr), &
+         wtr_ice_mass = wtr_ice_mass(bounds%begc:bounds%endc,1:nlevwtr) )
 
     do fc = 1, num_nolakec
        c = filter_nolakec(fc)
        water_mass(c) = liquid_mass(c) + ice_mass(c)
+!       if (use_wtr) then     !Huancui
+!          do ntr = 1, nlevwtr   
+!             wtr_water_mass(c,ntr) = wtr_liquid_mass(c,ntr) + wtr_liquid_mass(c,ntr) 
+!          end do
+!       end if
     end do
 
   end subroutine ComputeWaterMassNonLake
@@ -139,6 +149,8 @@ contains
     real(r8) :: liquid_mass(bounds%begc:bounds%endc)  ! kg m-2
     real(r8) :: ice_mass(bounds%begc:bounds%endc)     ! kg m-2
     integer  :: fc, c
+    real(r8) :: wtr_liquid_mass(bounds%begc:bounds%endc,1:nlevwtr)  ! kg m-2
+    real(r8) :: wtr_ice_mass(bounds%begc:bounds%endc,1:nlevwtr)     ! kg m-2
 
     character(len=*), parameter :: subname = 'ComputeWaterMassLake'
     !-----------------------------------------------------------------------
@@ -150,7 +162,9 @@ contains
          filter_lakec = filter_lakec, &
          lakestate_vars  = lakestate_vars, &
          liquid_mass = liquid_mass(bounds%begc:bounds%endc), &
-         ice_mass = ice_mass(bounds%begc:bounds%endc))
+         ice_mass = ice_mass(bounds%begc:bounds%endc)    &
+        ,wtr_liquid_mass = wtr_liquid_mass(bounds%begc:bounds%endc,1:nlevwtr), &
+         wtr_ice_mass = wtr_ice_mass(bounds%begc:bounds%endc,1:nlevwtr))
 
     do fc = 1, num_lakec
        c = filter_lakec(fc)
@@ -162,7 +176,7 @@ contains
 
   !-----------------------------------------------------------------------
   subroutine ComputeLiqIceMassNonLake(bounds, num_nolakec, filter_nolakec, &
-       soilhydrology_inst, liquid_mass, ice_mass)
+       soilhydrology_inst, liquid_mass, ice_mass, wtr_liquid_mass, wtr_ice_mass)
     !
     ! !DESCRIPTION:
     ! Compute total water mass for all non-lake columns, separated into liquid and ice
@@ -178,6 +192,8 @@ contains
     type(soilhydrology_type) , intent(in)    :: soilhydrology_inst
     real(r8)                 , intent(inout) :: liquid_mass( bounds%begc: ) ! computed liquid water mass (kg m-2)
     real(r8)                 , intent(inout) :: ice_mass( bounds%begc: )    ! computed ice mass (kg m-2)
+    real(r8)                 , intent(inout) :: wtr_liquid_mass( bounds%begc:bounds%endc,1:nlevwtr ) ! computed tracer liquid water mass (kg m-2)
+    real(r8)                 , intent(inout) :: wtr_ice_mass( bounds%begc:bounds%endc,1:nlevwtr )    ! computed tracer ice mass (kg m-2)
     !
     ! !LOCAL VARIABLES:
     integer  :: c, j, fc, l, p                  ! indices
@@ -185,6 +201,10 @@ contains
     real(r8) :: h2ocan_col(bounds%begc:bounds%endc)  ! canopy water (mm H2O)
     real(r8) :: snocan_col(bounds%begc:bounds%endc)  ! canopy snow water (mm H2O)
     real(r8) :: liqcan                               ! canopy liquid water (mm H2O)
+    real(r8) :: wtr_h2ocan_col(bounds%begc:bounds%endc,1:nlevwtr)  ! tracer canopy water (mm H2O)
+    real(r8) :: wtr_snocan_col(bounds%begc:bounds%endc,1:nlevwtr)  ! tracer canopy snow water (mm H2O)
+    real(r8) :: wtr_liqcan(1:nlevwtr)                               ! tracercanopy liquid water (mm H2O)
+    integer  :: ntr
 
     character(len=*), parameter :: subname = 'ComputeLiqIceMassNonLake'
     !-----------------------------------------------------------------------
@@ -202,22 +222,46 @@ contains
          total_plant_stored_h2o => col_ws%total_plant_stored_h2o, &
                                                                ! Input:  [real(r8) (:,:) ] plant internal stored water (mm H2O)
          wa           =>    soilhydrology_inst%wa_col        & ! Input:  [real(r8) (:)   ] water in the unconfined aquifer (mm)
+         !-----Huancui: water tracer vars------
+       , wtr_h2osfc       =>    col_ws%wtr_h2osfc     , & ! Input:  [real(r8) (:)   ]  surface water (mm)
+         wtr_h2osno       =>    col_ws%wtr_h2osno     , & ! Input:  [real(r8) (:)   ]  snow water (mm H2O)
+         wtr_h2ocan_patch =>    veg_ws%wtr_h2ocan   , & ! Input:  [real(r8) (:)   ]  canopy water (mm H2O)
+!         snocan_patch =>    waterstate_inst%wtr_snocan_patch   , & ! Input:  [real(r8) (:)   ]  canopy snow water (mm H2O)
+         wtr_h2osoi_ice   =>    col_ws%wtr_h2osoi_ice , & ! Input:  [real(r8) (:,:) ]  ice lens (kg/m2)
+         wtr_h2osoi_liq   =>    col_ws%wtr_h2osoi_liq , & ! Input:  [real(r8) (:,:) ]  liquid water (kg/m2)
+         wtr_total_plant_stored_h2o => col_ws%wtr_total_plant_stored_h2o, &
+                                                               ! Input:  [real(r8) (:,:) ] plant internal stored water (mm H2O)
+         wtr_wa           =>    soilhydrology_inst%wtr_wa_col        & ! Input:  [real(r8) (:)   ] water in the unconfined aquifer (mm)
          )
 
     do fc = 1, num_nolakec
        c = filter_nolakec(fc)
        liquid_mass(c) = 0._r8
        ice_mass(c) = 0._r8
+       if (use_wtr) then   !Huancui
+          wtr_liquid_mass(c,:) = 0._r8
+          wtr_ice_mass(c,:) = 0._r8
+       end if
     end do
 
     call p2c(bounds, num_nolakec, filter_nolakec, &
          h2ocan_patch(bounds%begp:bounds%endp), &
          h2ocan_col(bounds%begc:bounds%endc))
+    if (use_wtr) then
+       do ntr = 1, nlevwtr
+           call p2c(bounds, num_nolakec, filter_nolakec, &
+                wtr_h2ocan_patch(bounds%begp:bounds%endp,ntr), &
+                wtr_h2ocan_col(bounds%begc:bounds%endc,ntr))
+       end do
+    end if
 
     !call p2c(bounds, num_nolakec, filter_nolakec, &
     !     snocan_patch(bounds%begp:bounds%endp), &
     !     snocan_col(bounds%begc:bounds%endc))
     snocan_col(:) = 0._r8
+    if (use_wtr) then   !Huancui
+       wtr_snocan_col(:,:) = 0._r8
+    end if
 
     do fc = 1, num_nolakec
        c = filter_nolakec(fc)
@@ -237,11 +281,22 @@ contains
           do j = snl(c)+1,0
              liquid_mass(c) = liquid_mass(c) + h2osoi_liq(c,j)
              ice_mass(c) = ice_mass(c) + h2osoi_ice(c,j)
+             if (use_wtr) then     !Huancui
+                do ntr = 1, nlevwtr
+                   wtr_liquid_mass(c,ntr) = wtr_liquid_mass(c,ntr) + wtr_h2osoi_liq(c,j,ntr)
+                   wtr_ice_mass(c,ntr) = wtr_ice_mass(c,ntr) + wtr_h2osoi_ice(c,j,ntr)
+                end do
+             end if
           end do
        else if (h2osno(c) /= 0._r8) then
           ! No explicit snow layers, but there may still be some ice in h2osno (there is
           ! no liquid water in this case)
           ice_mass(c) = ice_mass(c) + h2osno(c)
+          if (use_wtr) then   !Huancui
+             do ntr = 1, nlevwtr
+                wtr_ice_mass(c,ntr) = wtr_ice_mass(c,ntr) + wtr_h2osno(c,ntr)
+             end do
+          end if
        end if
 
     end do
@@ -260,6 +315,12 @@ contains
           if (has_h2o) then
              liquid_mass(c) = liquid_mass(c) + h2osoi_liq(c,j)
              ice_mass(c) = ice_mass(c) + h2osoi_ice(c,j)
+             if (use_wtr) then      !Huancui
+                do ntr = 1,nlevwtr
+                   wtr_liquid_mass(c,ntr) = wtr_liquid_mass(c,ntr) + wtr_h2osoi_liq(c,j,ntr)
+                   wtr_ice_mass(c,ntr) = wtr_ice_mass(c,ntr) + wtr_h2osoi_ice(c,j,ntr)
+                end do
+             end if
          end if
        end do
     end do
@@ -273,6 +334,11 @@ contains
             .or. (lun_pp%itype(l) == istice_mec                               )  &
             .or. (lun_pp%urbpoi(l)          .and. col_pp%itype(c) == icol_road_perv  )) then
           liquid_mass(c) = liquid_mass(c) + wa(c)
+          if (use_wtr) then     !Huancui
+             do ntr = 1, nlevwtr
+                wtr_liquid_mass(c,ntr) = wtr_liquid_mass(c,ntr) + wtr_wa(c,ntr)
+             end do
+          end if
        end if
        l = col_pp%landunit(c)
 
@@ -280,12 +346,22 @@ contains
           do p = col_pp%pfti(c),col_pp%pftf(c) ! loop over patches
              if (veg_pp%active(p)) then
                 liquid_mass(c) = liquid_mass(c) + h2ocan_patch(p) * veg_pp%wtcol(p)
+                if (use_wtr) then       !Huancui
+                   do ntr = 1, nlevwtr
+                      wtr_liquid_mass(c,ntr) = wtr_liquid_mass(c,ntr) + wtr_h2ocan_patch(p,ntr) * veg_pp%wtcol(p)
+                   end do
+                end if
             end if
           end do
        end if
        !liqcan = h2ocan_col(c) - snocan_col(c)
        !liquid_mass(c) = liquid_mass(c) + liqcan + total_plant_stored_h2o(c)
        ice_mass(c)    = ice_mass(c) + snocan_col(c)
+       if (use_wtr) then     !Huancui
+          do ntr = 1, nlevwtr
+             wtr_ice_mass(c,ntr)    = wtr_ice_mass(c,ntr) + wtr_snocan_col(c,ntr)
+          end do
+       end if
 
        if (col_pp%itype(c) == icol_roof .or. col_pp%itype(c) == icol_sunwall &
             .or. col_pp%itype(c) == icol_shadewall .or. col_pp%itype(c) == icol_road_imperv) then
@@ -300,7 +376,7 @@ contains
 
   !-----------------------------------------------------------------------
   subroutine ComputeLiqIceMassLake(bounds, num_lakec, filter_lakec, &
-       lakestate_vars, liquid_mass, ice_mass)
+       lakestate_vars, liquid_mass, ice_mass, wtr_liquid_mass, wtr_ice_mass)
     !
     ! !DESCRIPTION:
     ! Compute total water mass for all lake columns, separated into liquid and ice
@@ -316,9 +392,12 @@ contains
     type(lakestate_type)  , intent(in)    :: lakestate_vars
     real(r8)              , intent(inout) :: liquid_mass( bounds%begc: ) ! computed liquid water mass (kg m-2)
     real(r8)              , intent(inout) :: ice_mass( bounds%begc: )    ! computed ice mass (kg m-2)
+    real(r8)              , intent(inout) :: wtr_liquid_mass( bounds%begc:bounds%endc,1:nlevwtr ) ! computed tracer liquid water mass (kg m-2)
+    real(r8)              , intent(inout) :: wtr_ice_mass( bounds%begc:bounds%endc,1:nlevwtr )    ! computed tracer ice mass (kg m-2)
     !
     ! !LOCAL VARIABLES:
     integer :: c, j, fc                  ! indices
+    integer :: ntr                       ! Huancui
 
     character(len=*), parameter :: subname = 'ComputeLiqIceMassLake'
     !-----------------------------------------------------------------------
@@ -330,12 +409,19 @@ contains
          h2osno       =>    col_ws%h2osno     , & ! Input:  [real(r8) (:)   ]  snow water (mm H2O)
          h2osoi_ice   =>    col_ws%h2osoi_ice , & ! Input:  [real(r8) (:,:) ]  ice lens (kg/m2)
          h2osoi_liq   =>    col_ws%h2osoi_liq   & ! Input:  [real(r8) (:,:) ]  liquid water (kg/m2)
+       , wtr_h2osno       =>    col_ws%wtr_h2osno     , & ! Input:  [real(r8) (:)   ]  snow water (mm H2O)
+         wtr_h2osoi_ice   =>    col_ws%wtr_h2osoi_ice , & ! Input:  [real(r8) (:,:) ]  ice lens (kg/m2)
+         wtr_h2osoi_liq   =>    col_ws%wtr_h2osoi_liq   & ! Input:  [real(r8) (:,:) ]  liquid water (kg/m2)
          )
 
     do fc = 1, num_lakec
        c = filter_lakec(fc)
        liquid_mass(c) = 0._r8
        ice_mass(c) = 0._r8
+       if (use_wtr) then    !Huancui
+          wtr_liquid_mass(c,:) = 0._r8
+          wtr_ice_mass(c,:) = 0._r8
+       end if
     end do
 
     ! Snow water content
@@ -346,11 +432,22 @@ contains
           do j = snl(c)+1,0
              liquid_mass(c) = liquid_mass(c) + h2osoi_liq(c,j)
              ice_mass(c) = ice_mass(c) + h2osoi_ice(c,j)
+             if (use_wtr) then    !Huancui
+                do ntr = 1, nlevwtr
+                   wtr_liquid_mass(c,ntr) = wtr_liquid_mass(c,ntr) + wtr_h2osoi_liq(c,j,ntr)
+                   wtr_ice_mass(c,ntr) = wtr_ice_mass(c,ntr) + wtr_h2osoi_ice(c,j,ntr)
+                end do
+             end if
           end do
        else if (h2osno(c) /= 0._r8) then
           ! No explicit snow layers, but there may still be some ice in h2osno (there is
           ! no liquid water in this case)
           ice_mass(c) = ice_mass(c) + h2osno(c)
+          if (use_wtr) then    !Huancui
+             do ntr = 1, nlevwtr
+                wtr_ice_mass(c,ntr) = wtr_ice_mass(c,ntr) + wtr_h2osno(c,ntr)
+             end do
+          end if
        end if
     end do
 
@@ -360,6 +457,12 @@ contains
           c = filter_lakec(fc)
           liquid_mass(c) = liquid_mass(c) + h2osoi_liq(c,j)
           ice_mass(c) = ice_mass(c) + h2osoi_ice(c,j)
+          if (use_wtr) then    !Huancui
+             do ntr = 1, nlevwtr 
+                wtr_liquid_mass(c,ntr) = wtr_liquid_mass(c,ntr) + wtr_h2osoi_liq(c,j,ntr)
+                wtr_ice_mass(c,ntr) = wtr_ice_mass(c,ntr) + wtr_h2osoi_ice(c,j,ntr)
+             end do
+          end if
        end do
     end do
 
@@ -370,6 +473,12 @@ contains
           ice_mass(c)    = ice_mass(c)    +      lakestate_vars%lake_icefrac_col(c,j)  * col_pp%dz_lake(c,j) * denh2o
           ! lake layers do not change thickness when freezing, so denh2o should be used
           ! (thermal properties are appropriately adjusted; see LakeTemperatureMod)
+          if (use_wtr) then   !Huancui
+             do ntr = 1, nlevwtr  !need to double check later to incorporate lake tracer storage terms!!!!
+                wtr_liquid_mass(c,ntr) = wtr_liquid_mass(c,ntr) + (1 - lakestate_vars%lake_icefrac_col(c,j)) * col_pp%dz_lake(c,j) * denh2o
+                wtr_ice_mass(c,ntr)    = wtr_ice_mass(c,ntr)    +      lakestate_vars%lake_icefrac_col(c,j)  * col_pp%dz_lake(c,j) * denh2o
+             end do
+          end if
        end do
     end do
   end associate
